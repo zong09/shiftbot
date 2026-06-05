@@ -1,0 +1,31 @@
+{
+  "name": "shiftbot",
+  "version": "1.0.0",
+  "description": "ShiftBot — CDC Action Zone V3 2020 Trading Bot on Binance Futures",
+  "scripts": {
+    "dev": "concurrently -n BOT,UI -c cyan,magenta \"nest start --watch\" \"cd dashboard && npm run dev\"",
+    "build": "nest build && cd dashboard && npm run build",
+    "start": "node dist/main",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "install:all": "npm install && cd dashboard && npm install"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.3.0",
+    "@nestjs/config": "^3.1.1",
+    "@nestjs/core": "^10.3.0",
+    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/schedule": "^4.0.0",
+    "axios": "^1.6.5",
+    "ccxt": "^4.2.15",
+    "reflect-metadata": "^0.1.13",
+    "rxjs": "^7.8.1",
+    "technicalindicators": "^3.1.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.0",
+    "@types/node": "^20.11.0",
+    "concurrently": "^8.2.2",
+    "typescript": "^5.3.3"
+  }
+}
