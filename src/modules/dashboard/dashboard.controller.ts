@@ -1,8 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
-import { TradingService } from '../trading/trading.service';
+import { Controller, Get, Put, Query, Param, Body } from '@nestjs/common';
+import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
+import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 
 @Controller('api')
 export class DashboardController {
@@ -11,17 +12,20 @@ export class DashboardController {
     private strategyService: StrategyService,
     private marketDataService: MarketDataService,
     private cdcService: CdcActionZoneService,
+    private settingsService: TradingSettingsService,
   ) {}
 
   /** สถานะ bot และ position ปัจจุบัน */
   @Get('status')
-  getStatus() {
-    const positions = this.tradingService.getOpenPositions();
-    const lastCdc   = this.strategyService.getLastResult();
+  async getStatus(@Query('mode') mode: TradingMode = 'live') {
+    const positions = await this.tradingService.getOpenPositions(mode);
+    const totalPnl  = await this.tradingService.getTotalPnl(mode);
+    const lastCdc   = this.strategyService.getLastResult(mode);
     return {
-      status:       'running',
-      symbol:       this.marketDataService.getSymbol(),
-      timeframe:    this.marketDataService.getTimeframe(),
+      status:      'running',
+      mode,
+      symbol:      this.marketDataService.getSymbol(),
+      timeframe:   this.marketDataService.getTimeframe(),
       openPositions: positions.map((p) => ({
         id:         p.id,
         side:       p.side,
@@ -42,18 +46,20 @@ export class DashboardController {
             close:     lastCdc.close,
           }
         : null,
-      totalPnl: this.tradingService.getTotalPnl().toFixed(2),
+      totalPnl:  totalPnl.toFixed(2),
       timestamp: new Date().toISOString(),
     };
   }
 
   /** ประวัติ trade ทั้งหมด */
   @Get('trades')
-  getTrades() {
+  async getTrades(@Query('mode') mode: TradingMode = 'live') {
+    const trades   = await this.tradingService.getTradeHistory(mode);
+    const totalPnl = await this.tradingService.getTotalPnl(mode);
     return {
-      trades: this.tradingService.getTradeHistory(),
-      total:  this.tradingService.getTradeHistory().length,
-      pnl:    this.tradingService.getTotalPnl().toFixed(2),
+      trades,
+      total: trades.length,
+      pnl:   totalPnl.toFixed(2),
     };
   }
 
@@ -79,9 +85,46 @@ export class DashboardController {
     };
   }
 
+  /** OHLCV candles + CDC indicators สำหรับ chart */
+  @Get('candles')
+  async getCandles(@Query('timeframe') timeframe?: string) {
+    const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, timeframe);
+    if (!candles.length) return { candles: [], indicators: [], count: 0 };
+    const indicators = this.cdcService.calculateHistory(candles);
+    return { candles, indicators, count: candles.length };
+  }
+
   /** Health check */
   @Get('health')
   health() {
     return { status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() };
+  }
+
+  /** Trading settings — all modes */
+  @Get('settings')
+  getSettings() {
+    return this.settingsService.getAllSettings();
+  }
+
+  /** Trading settings — single mode */
+  @Get('settings/:mode')
+  getSettingsByMode(@Param('mode') mode: TradingMode) {
+    return this.settingsService.getSettings(mode);
+  }
+
+  /** Update trading settings for a mode — reschedules cron if timeframe changed; closes positions if status→off */
+  @Put('settings/:mode')
+  async updateSettings(@Param('mode') mode: TradingMode, @Body() body: Record<string, unknown>) {
+    if (body.status === 'off') {
+      const prev = await this.settingsService.getSettings(mode);
+      if (prev.status !== 'off') {
+        await this.tradingService.closeAllPositions(mode);
+      }
+    }
+    const updated = await this.settingsService.updateSettings(mode, body as any);
+    if ('timeframe' in body) {
+      await this.strategyService.reschedule(mode);
+    }
+    return updated;
   }
 }
