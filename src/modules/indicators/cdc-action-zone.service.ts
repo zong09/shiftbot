@@ -99,16 +99,18 @@ export class CdcActionZoneService {
    * @param candles - OHLCV data (เรียงจากเก่า → ใหม่)
    * @param prevZone - zone ของ candle ก่อนหน้า (สำหรับหา signal)
    */
-  calculate(candles: OHLCV[], prevZone?: CDCZone): CDCResult | null {
-    const minCandles = this.emaSlowPeriod + 2;
+  calculate(candles: OHLCV[], prevZone?: CDCZone, emaFastOverride?: number, emaSlowOverride?: number): CDCResult | null {
+    const fastPeriod = emaFastOverride ?? this.emaFastPeriod;
+    const slowPeriod = emaSlowOverride ?? this.emaSlowPeriod;
+    const minCandles = slowPeriod + 2;
     if (candles.length < minCandles) {
       this.logger.warn(`ต้องการ candle อย่างน้อย ${minCandles} แท่ง`);
       return null;
     }
 
     const closes = candles.map((c) => c.close);
-    const emaFastArr = this.calculateEMA(closes, this.emaFastPeriod);
-    const emaSlowArr = this.calculateEMA(closes, this.emaSlowPeriod);
+    const emaFastArr = this.calculateEMA(closes, fastPeriod);
+    const emaSlowArr = this.calculateEMA(closes, slowPeriod);
 
     const last = candles.length - 1;
     const emaFast     = emaFastArr[last];
@@ -134,22 +136,65 @@ export class CdcActionZoneService {
     }
 
     this.logger.log(
-      `CDC Zone: ${zoneName} (${zone}) | EMA${this.emaFastPeriod}=${emaFast.toFixed(2)} EMA${this.emaSlowPeriod}=${emaSlow.toFixed(2)} | Close=${close} | Signal=${signal}`,
+      `CDC Zone: ${zoneName} (${zone}) | EMA${fastPeriod}=${emaFast.toFixed(2)} EMA${slowPeriod}=${emaSlow.toFixed(2)} | Close=${close} | Signal=${signal}`,
     );
 
     return { zone, emaFast, emaSlow, close, isBullish, isBearish, signal, zoneName, zoneColor };
   }
 
   /**
+   * คำนวณ CDC สำหรับทุก candle พร้อม timestamp (สำหรับ chart overlay)
+   */
+  calculateHistory(candles: OHLCV[], emaFastOverride?: number, emaSlowOverride?: number): Array<{
+    timestamp: number;
+    emaFast: number;
+    emaSlow: number;
+    zone: CDCZone;
+    zoneColor: string;
+    signal: 'BUY' | 'SELL' | 'HOLD';
+  }> {
+    const fastPeriod = emaFastOverride ?? this.emaFastPeriod;
+    const slowPeriod = emaSlowOverride ?? this.emaSlowPeriod;
+    const closes = candles.map((c) => c.close);
+    const emaFastArr = this.calculateEMA(closes, fastPeriod);
+    const emaSlowArr = this.calculateEMA(closes, slowPeriod);
+    const results: Array<{ timestamp: number; emaFast: number; emaSlow: number; zone: CDCZone; zoneColor: string; signal: 'BUY' | 'SELL' | 'HOLD' }> = [];
+
+    for (let i = slowPeriod; i < candles.length; i++) {
+      const emaFast     = emaFastArr[i];
+      const emaSlow     = emaSlowArr[i];
+      const emaFastPrev = emaFastArr[i - 1];
+      const emaSlowPrev = emaSlowArr[i - 1];
+      if (!emaFast || !emaSlow || !emaFastPrev || !emaSlowPrev) continue;
+
+      const zone = this.determineZone(closes[i], emaFast, emaSlow, emaFastPrev, emaSlowPrev);
+      const { color: zoneColor } = this.getZoneInfo(zone);
+
+      let signal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+      if (results.length > 0) {
+        const prev = results[results.length - 1];
+        if (prev.zone >= 5 && zone <= 4) signal = 'BUY';
+        if (prev.zone <= 4 && zone >= 5) signal = 'SELL';
+      }
+
+      results.push({ timestamp: candles[i].timestamp, emaFast, emaSlow, zone, zoneColor, signal });
+    }
+
+    return results;
+  }
+
+  /**
    * คำนวณ CDC สำหรับทุก candle (สำหรับ backtest / history)
    */
-  calculateAll(candles: OHLCV[]): CDCResult[] {
+  calculateAll(candles: OHLCV[], emaFastOverride?: number, emaSlowOverride?: number): CDCResult[] {
+    const fastPeriod = emaFastOverride ?? this.emaFastPeriod;
+    const slowPeriod = emaSlowOverride ?? this.emaSlowPeriod;
     const closes = candles.map((c) => c.close);
-    const emaFastArr = this.calculateEMA(closes, this.emaFastPeriod);
-    const emaSlowArr = this.calculateEMA(closes, this.emaSlowPeriod);
+    const emaFastArr = this.calculateEMA(closes, fastPeriod);
+    const emaSlowArr = this.calculateEMA(closes, slowPeriod);
     const results: CDCResult[] = [];
 
-    for (let i = this.emaSlowPeriod; i < candles.length; i++) {
+    for (let i = slowPeriod; i < candles.length; i++) {
       const emaFast     = emaFastArr[i];
       const emaSlow     = emaSlowArr[i];
       const emaFastPrev = emaFastArr[i - 1];
