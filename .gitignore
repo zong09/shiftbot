@@ -30,5 +30,3 @@ Thumbs.db
 
 # PostgreSQL data (bind mount)
 pgdata/
-
-.claude/worktrees/
