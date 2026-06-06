@@ -8,6 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies for both bot and dashboard
 npm run install:all
 
+# Start PostgreSQL (required before running bot)
+docker compose up -d
+
 # Run bot + dashboard together (dev mode)
 npm run dev
 # → Bot API:  http://localhost:3000
@@ -30,16 +33,44 @@ The project has two parts in the same folder:
 ### Bot data flow
 
 ```
-[Binance Futures OHLCV]
-        ↓  MarketDataService.fetchOHLCV()
-[CdcActionZoneService.calculate()]   ← computes EMA12/26, assigns zone 1-8, emits signal
+[Binance Futures OHLCV]  ← exchangePublic (no auth — public endpoint)
+        ↓  MarketDataService.fetchOHLCVByTimeframe()
+[CdcActionZoneService.calculate()]   ← EMA periods from DB settings per mode
         ↓
-[StrategyService] @Cron("0 * * * *") ← runs on every candle close (default 1h)
+[StrategyService] @Cron("0 * * * *") ← hardcoded 1h; see cron table below
         ↓ BUY/SELL/HOLD
 [TradingService]                     ← openLong / closeLong / checkSLTP
-        ↓
+        ↓                              uses exchangeLive (live) or exchangeDemo (sandbox)
 [NotificationService]                ← Telegram / LINE Notify
 ```
+
+### Exchange instances (MarketDataService)
+
+| Instance | Auth | Endpoint | Purpose |
+|---|---|---|---|
+| `exchangePublic` | none | `fapi.binance.com` | OHLCV / ticker (public) |
+| `exchangeLive` | BINANCE_API_KEY | `fapi.binance.com` | Live order execution |
+| `exchangeDemo` | BINANCE_DEMO_API_KEY | `demo-fapi.binance.com` | Demo order execution |
+
+`exchangeDemo` URL is manually patched — **do NOT use `setSandboxMode(true)`** (points to wrong testnet endpoint).
+
+### Trading settings (PostgreSQL)
+
+All per-mode trading parameters live in `trading_settings` table (PK = `mode`):
+
+| Field | Default |
+|---|---|
+| symbol | BTC/USDT:USDT |
+| timeframe | 1h |
+| leverage | 5 |
+| orderSizeUsdt | 100 |
+| maxPositions | 1 |
+| stopLossPct | 2.0 |
+| takeProfitPct | 4.0 |
+| emaFast | 12 |
+| emaSlow | 26 |
+
+Rows are auto-seeded on first run. Edit via dashboard Settings tab or `PUT /api/settings/:mode`.
 
 ### CDC Action Zone V3 — core logic
 
@@ -52,12 +83,13 @@ Zone is determined by 4 booleans:
 - **D** = EMA_slow is rising
 
 Zones 1–4 = bullish, Zones 5–8 = bearish.  
-**BUY** when zone transitions bearish→bullish, **SELL** when bullish→bearish.  
-`lastZone` is passed from `StrategyService` each cycle to detect zone changes.
+**BUY** when zone transitions bearish→bullish, **SELL** when bullish→bearish.
+
+Methods accept optional `emaFastOverride` / `emaSlowOverride` — StrategyService passes per-mode values from DB.
 
 ### Cron schedule
 
-`StrategyService` uses `@Cron('0 * * * *')` (1h) — if `TIMEFRAME` in `.env` is changed, the decorator must be updated manually:
+`StrategyService` creates **two dynamic cron jobs** at startup (one per mode) using `SchedulerRegistry`. Changing `timeframe` via `PUT /api/settings/:mode` automatically reschedules that mode's job — no restart required.
 
 | Timeframe | Cron            |
 |-----------|-----------------|
@@ -66,28 +98,35 @@ Zones 1–4 = bullish, Zones 5–8 = bearish.
 | 15m       | `*/15 * * * *`  |
 | 1h        | `0 * * * *`     |
 | 4h        | `0 */4 * * *`   |
+| 1d        | `0 0 * * *`     |
 
 ### State management
 
-`TradingService` stores state in memory (Map + Array) — no database. Trade history and open positions are lost on restart. Add a database layer if persistence is needed.
+All state persists in PostgreSQL. Positions and trade history survive bot restarts.
 
-### Configuration
-
-All values are read from `.env` via `src/config/configuration.ts` and injected with `ConfigService`. There is no validation schema — invalid values fall back to defaults silently.
+`synchronize: true` in `AppModule` — safe for dev, **disable before production**.
 
 ### Dashboard API endpoints
 
-| Endpoint             | Returns                                   |
-|----------------------|-------------------------------------------|
-| `GET /api/status`    | CDC zone, open positions, total PnL       |
-| `GET /api/trades`    | Full trade history + PnL bar chart data   |
-| `GET /api/indicator` | Fresh CDC calculation on-demand           |
-| `GET /api/health`    | Uptime check                              |
+| Endpoint | Returns |
+|---|---|
+| `GET /api/status` | CDC zone, open positions, total PnL |
+| `GET /api/trades` | Full trade history |
+| `GET /api/candles?timeframe=` | OHLCV + CDC indicator overlay (emaFast, emaSlow, zone, signal) |
+| `GET /api/indicator` | Latest CDC calculation on-demand |
+| `GET /api/settings` | Trading settings for both modes |
+| `GET /api/settings/:mode` | Settings for one mode |
+| `PUT /api/settings/:mode` | Update settings for one mode |
+| `GET /api/health` | Uptime check |
 
 ## Key files
 
-- `src/modules/indicators/cdc-action-zone.service.ts` — indicator core; edit here to adjust zone logic
-- `src/modules/strategy/strategy.service.ts` — trading loop entry point + cron
-- `src/config/configuration.ts` — .env → typed config object
-- `src/common/types/index.ts` — all shared interfaces and enums
-- `dashboard/src/components/ZoneBar.jsx` — visual zone indicator in the UI
+- `src/modules/indicators/cdc-action-zone.service.ts` — indicator core
+- `src/modules/strategy/strategy.service.ts` — trading loop + cron
+- `src/modules/trading/trading.service.ts` — order execution (reads settings from DB)
+- `src/modules/trading-settings/trading-settings.service.ts` — settings CRUD
+- `src/modules/market-data/market-data.service.ts` — 3 exchange instances
+- `src/database/entities/` — TypeORM entities
+- `src/config/configuration.ts` — minimal .env mapping (Binance keys, DB, notifications)
+- `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
+- `dashboard/src/components/Settings.jsx` — per-mode settings form
