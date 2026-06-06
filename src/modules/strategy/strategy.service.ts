@@ -1,109 +1,170 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
-import { TradingService } from '../trading/trading.service';
+import { TradingService, TradingMode } from '../trading/trading.service';
 import { NotificationService } from '../notification/notification.service';
+import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { CDCZone, CDCResult } from '../../common/types';
 
+interface ModeContext {
+  lastZone: CDCZone | undefined;
+  lastResult: CDCResult | null;
+  isRunning: boolean;
+}
+
+const TIMEFRAME_CRON: Record<string, string> = {
+  '1m':  '* * * * *',
+  '5m':  '*/5 * * * *',
+  '15m': '*/15 * * * *',
+  '1h':  '0 * * * *',
+  '4h':  '0 */4 * * *',
+  '1d':  '0 0 * * *',
+};
+
+function timeframeToCron(timeframe: string): string {
+  return TIMEFRAME_CRON[timeframe] ?? '0 * * * *';
+}
+
 @Injectable()
-export class StrategyService {
+export class StrategyService implements OnModuleInit {
   private readonly logger = new Logger(StrategyService.name);
-  private lastZone: CDCZone | undefined = undefined;
-  private lastResult: CDCResult | null = null;
-  private isRunning = false;
-  private timeframe: string;
+
+  private contexts: Record<TradingMode, ModeContext> = {
+    live:    { lastZone: undefined, lastResult: null, isRunning: false },
+    sandbox: { lastZone: undefined, lastResult: null, isRunning: false },
+  };
 
   constructor(
-    private configService: ConfigService,
     private marketDataService: MarketDataService,
     private cdcService: CdcActionZoneService,
     private tradingService: TradingService,
     private notificationService: NotificationService,
-  ) {
-    this.timeframe = this.configService.get<string>('trading.timeframe', '1h');
+    private settingsService: TradingSettingsService,
+    private schedulerRegistry: SchedulerRegistry,
+  ) {}
+
+  async onModuleInit() {
+    await Promise.all([
+      this.reschedule('live'),
+      this.reschedule('sandbox'),
+    ]);
   }
 
-  /**
-   * รัน strategy ทุกครั้งที่ candle ปิด
-   * Cron expression ตาม timeframe:
-   *   1m  → ทุกนาที
-   *   5m  → ทุก 5 นาที
-   *   15m → ทุก 15 นาที
-   *   1h  → ทุกชั่วโมง
-   *   4h  → ทุก 4 ชั่วโมง
-   *   1d  → ทุกวัน 00:00
-   *
-   * เปลี่ยน Cron ใน decorator ให้ตรงกับ TIMEFRAME ใน .env
-   */
-  @Cron('0 * * * *') // default: 1h — เปลี่ยนตาม timeframe
-  async runStrategy() {
-    if (this.isRunning) {
-      this.logger.warn('Strategy กำลังทำงาน รอให้เสร็จก่อน');
+  async reschedule(mode: TradingMode): Promise<void> {
+    const jobName = `strategy-${mode}`;
+    const s = await this.settingsService.getSettings(mode);
+    const cronExpr = timeframeToCron(s.timeframe);
+
+    if (this.schedulerRegistry.doesExist('cron', jobName)) {
+      this.schedulerRegistry.deleteCronJob(jobName);
+    }
+
+    const job = new CronJob(cronExpr, () => {
+      this.runForMode(mode).catch((err) =>
+        this.logger.error(`[${mode}] unhandled error: ${err.message}`),
+      );
+    });
+
+    this.schedulerRegistry.addCronJob(jobName, job);
+    job.start();
+
+    this.logger.log(`[${mode}] scheduled cron: "${cronExpr}" (timeframe: ${s.timeframe})`);
+  }
+
+  private async runForMode(mode: TradingMode): Promise<void> {
+    const ctx = this.contexts[mode];
+    if (ctx.isRunning) {
+      this.logger.warn(`[${mode}] Strategy กำลังทำงาน รอให้เสร็จก่อน`);
       return;
     }
-    this.isRunning = true;
+    ctx.isRunning = true;
 
     try {
-      this.logger.log('=== เริ่มรัน CDC Strategy ===');
+      const s = await this.settingsService.getSettings(mode);
 
-      // 1. ดึง OHLCV
-      const candles = await this.marketDataService.fetchOHLCV(200);
-      if (!candles.length) {
-        this.logger.warn('ไม่ได้รับ candle data');
+      if (s.status === 'off') {
+        this.logger.debug(`[${mode}] status=off — skipped`);
         return;
       }
 
-      // 2. คำนวณ CDC Action Zone
-      const result = this.cdcService.calculate(candles, this.lastZone);
+      this.logger.log(`=== [${mode}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
+
+      const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, s.timeframe);
+      if (!candles.length) {
+        this.logger.warn(`[${mode}] ไม่ได้รับ candle data`);
+        return;
+      }
+
+      const result = this.cdcService.calculate(candles, ctx.lastZone, s.emaFast, s.emaSlow);
       if (!result) return;
 
-      this.lastResult = result;
+      ctx.lastResult = result;
       const currentPrice = result.close;
 
-      // 3. ตรวจ SL/TP ก่อนเสมอ
-      await this.tradingService.checkSLTP(currentPrice, result.zone);
+      await this.tradingService.checkSLTP(currentPrice, result.zone, mode);
 
-      // 4. ประมวล signal
+      if (s.status === 'pause') {
+        this.logger.log(`[${mode}] status=pause — SLTP checked, signals skipped`);
+        ctx.lastZone = result.zone;
+        return;
+      }
+
       if (result.signal === 'BUY') {
-        this.logger.log(`🟢 BUY Signal | Zone: ${result.zoneName}`);
-        await this.notificationService.sendSignal('BUY', result, currentPrice);
+        this.logger.log(`[${mode}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
 
-        if (!this.tradingService.hasOpenPosition()) {
-          const position = await this.tradingService.openLong(currentPrice, result.zone);
-          if (position) {
+        if (mode === 'live') {
+          await this.notificationService.sendSignal('BUY', result, currentPrice);
+        }
+
+        if (!await this.tradingService.hasOpenPosition(mode)) {
+          const position = await this.tradingService.openLong(currentPrice, result.zone, mode);
+          if (position && mode === 'live') {
             await this.notificationService.sendOpenPosition(position);
           }
         }
 
       } else if (result.signal === 'SELL') {
-        this.logger.log(`🔴 SELL Signal | Zone: ${result.zoneName}`);
-        await this.notificationService.sendSignal('SELL', result, currentPrice);
+        this.logger.log(`[${mode}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
 
-        const positions = this.tradingService.getOpenPositions();
+        if (mode === 'live') {
+          await this.notificationService.sendSignal('SELL', result, currentPrice);
+        }
+
+        const positions = await this.tradingService.getOpenPositions(mode);
         for (const pos of positions) {
           if (pos.side === 'long') {
-            await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL');
-            await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
+            await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            if (mode === 'live') {
+              await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
+            }
           }
         }
 
       } else {
-        this.logger.log(`⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
+        this.logger.log(`[${mode}] ⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
       }
 
-      // 5. อัพเดต lastZone
-      this.lastZone = result.zone;
+      ctx.lastZone = result.zone;
     } catch (err) {
-      this.logger.error('runStrategy error: ' + err.message);
-      await this.notificationService.sendError(err.message);
+      this.logger.error(`[${mode}] runStrategy error: ` + err.message);
+      if (mode === 'live') {
+        await this.notificationService.sendError(err.message);
+      }
     } finally {
-      this.isRunning = false;
+      ctx.isRunning = false;
     }
   }
 
-  getLastResult(): CDCResult | null {
-    return this.lastResult;
+  async runStrategy(): Promise<void> {
+    await Promise.all([
+      this.runForMode('live'),
+      this.runForMode('sandbox'),
+    ]);
+  }
+
+  getLastResult(mode: TradingMode = 'live'): CDCResult | null {
+    return this.contexts[mode].lastResult;
   }
 }
