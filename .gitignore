@@ -10,6 +10,7 @@ dashboard/dist/
 .env
 .env.local
 .env.*.local
+docker-compose.yml
 
 # Logs
 *.log
@@ -29,3 +30,5 @@ Thumbs.db
 
 # PostgreSQL data (bind mount)
 pgdata/
+
+.claude/worktrees/
