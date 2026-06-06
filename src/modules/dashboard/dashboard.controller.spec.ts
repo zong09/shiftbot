@@ -1,0 +1,321 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { DashboardController } from './dashboard.controller';
+import { TradingService } from '../trading/trading.service';
+import { StrategyService } from '../strategy/strategy.service';
+import { MarketDataService } from '../market-data/market-data.service';
+import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
+import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { CDCZone, CDCResult, Position, TradeLog } from '../../common/types';
+
+// ─── fixture helpers ─────────────────────────────────────────────────────────
+
+function makeCdcResult(overrides: Partial<CDCResult> = {}): CDCResult {
+  return {
+    zone:      CDCZone.STRONG_BULL,
+    emaFast:   50_000.1234,
+    emaSlow:   49_000.5678,
+    close:     51_000,
+    isBullish: true,
+    isBearish: false,
+    signal:    'HOLD',
+    zoneName:  'Strong Bull',
+    zoneColor: '#00FF00',
+    ...overrides,
+  };
+}
+
+function makeOpenPosition(overrides: Partial<Position> = {}): Position {
+  return {
+    id:          'pos-1',
+    symbol:      'BTC/USDT:USDT',
+    side:        'long',
+    entryPrice:  50_000,
+    quantity:    0.01,
+    stopLoss:    49_000,
+    takeProfit:  52_000,
+    openTime:    new Date('2024-01-01T00:00:00.000Z'),
+    status:      'open',
+    mode:        'live',
+    ...overrides,
+  } as Position;
+}
+
+function makeTradeLog(overrides: Partial<TradeLog> = {}): TradeLog {
+  return {
+    id:        'log-1',
+    timestamp: new Date('2024-01-01T00:00:00.000Z'),
+    symbol:    'BTC/USDT:USDT',
+    action:    'OPEN_LONG',
+    price:     50_000,
+    quantity:  0.01,
+    zone:      CDCZone.STRONG_BULL,
+    signal:    'BUY',
+    mode:      'live',
+    ...overrides,
+  } as TradeLog;
+}
+
+// ─── service mocks ───────────────────────────────────────────────────────────
+
+function makeTradingService(): jest.Mocked<Partial<TradingService>> {
+  return {
+    getOpenPositions: jest.fn().mockResolvedValue([]),
+    getTotalPnl:      jest.fn().mockResolvedValue(0),
+    getTradeHistory:  jest.fn().mockResolvedValue([]),
+  } as any;
+}
+
+function makeStrategyService(): jest.Mocked<Partial<StrategyService>> {
+  return {
+    getLastResult: jest.fn().mockReturnValue(null),
+  } as any;
+}
+
+function makeMarketDataService(): jest.Mocked<Partial<MarketDataService>> {
+  return {
+    getSymbol:    jest.fn().mockReturnValue('BTC/USDT:USDT'),
+    getTimeframe: jest.fn().mockReturnValue('1h'),
+    fetchOHLCV:   jest.fn().mockResolvedValue([]),
+  } as any;
+}
+
+function makeCdcService(): jest.Mocked<Partial<CdcActionZoneService>> {
+  return {
+    calculate: jest.fn().mockReturnValue(null),
+  } as any;
+}
+
+// ─── test suite ──────────────────────────────────────────────────────────────
+
+describe('DashboardController', () => {
+  let controller: DashboardController;
+  let tradingSvc: ReturnType<typeof makeTradingService>;
+  let strategySvc: ReturnType<typeof makeStrategyService>;
+  let marketDataSvc: ReturnType<typeof makeMarketDataService>;
+  let cdcSvc: ReturnType<typeof makeCdcService>;
+
+  beforeEach(async () => {
+    tradingSvc    = makeTradingService();
+    strategySvc   = makeStrategyService();
+    marketDataSvc = makeMarketDataService();
+    cdcSvc        = makeCdcService();
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [DashboardController],
+      providers: [
+        { provide: TradingService,        useValue: tradingSvc },
+        { provide: StrategyService,       useValue: strategySvc },
+        { provide: MarketDataService,     useValue: marketDataSvc },
+        { provide: CdcActionZoneService,  useValue: cdcSvc },
+        { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), updateSettings: jest.fn().mockResolvedValue({}) } },
+      ],
+    }).compile();
+
+    controller = module.get<DashboardController>(DashboardController);
+  });
+
+  // ── GET /api/status ──────────────────────────────────────────────────────
+
+  describe('GET /api/status', () => {
+    it('returns status="running" with the requested mode', async () => {
+      const response = await controller.getStatus('live');
+      expect(response.status).toBe('running');
+      expect(response.mode).toBe('live');
+    });
+
+    it('defaults mode to "live" when no query param is supplied', async () => {
+      const response = await controller.getStatus(undefined as any);
+      expect(response.mode).toBe('live');
+    });
+
+    it('returns symbol and timeframe from MarketDataService', async () => {
+      const response = await controller.getStatus('live');
+      expect(response.symbol).toBe('BTC/USDT:USDT');
+      expect(response.timeframe).toBe('1h');
+    });
+
+    it('returns an empty openPositions array when no positions are open', async () => {
+      const response = await controller.getStatus('live');
+      expect(response.openPositions).toEqual([]);
+    });
+
+    it('maps open positions to the correct shape (id, side, entryPrice, quantity, stopLoss, takeProfit, openTime)', async () => {
+      const pos = makeOpenPosition();
+      (tradingSvc.getOpenPositions as jest.Mock).mockResolvedValue([pos]);
+      const response = await controller.getStatus('live');
+      expect(response.openPositions).toHaveLength(1);
+      const mapped = response.openPositions[0];
+      expect(mapped).toHaveProperty('id', 'pos-1');
+      expect(mapped).toHaveProperty('side', 'long');
+      expect(mapped).toHaveProperty('entryPrice', 50_000);
+      expect(mapped).toHaveProperty('quantity', 0.01);
+      expect(mapped).toHaveProperty('stopLoss', 49_000);
+      expect(mapped).toHaveProperty('takeProfit', 52_000);
+      expect(mapped).toHaveProperty('openTime');
+      expect(Object.keys(mapped)).not.toContain('status');
+    });
+
+    it('returns lastCDC=null when StrategyService has no result yet', async () => {
+      (strategySvc.getLastResult as jest.Mock).mockReturnValue(null);
+      const response = await controller.getStatus('live');
+      expect(response.lastCDC).toBeNull();
+    });
+
+    it('maps lastCDC fields correctly and formats emaFast / emaSlow to 4 decimal places', async () => {
+      const emaFast = 50_000.12345;
+      const emaSlow = 49_000.6789;
+      const cdcResult = makeCdcResult({ emaFast, emaSlow });
+      (strategySvc.getLastResult as jest.Mock).mockReturnValue(cdcResult);
+      const response = await controller.getStatus('live');
+      expect(response.lastCDC).not.toBeNull();
+      expect(response.lastCDC.zone).toBe(CDCZone.STRONG_BULL);
+      expect(response.lastCDC.zoneName).toBe('Strong Bull');
+      expect(response.lastCDC.zoneColor).toBe('#00FF00');
+      expect(response.lastCDC.signal).toBe('HOLD');
+      expect(response.lastCDC.emaFast).toBe(emaFast.toFixed(4));
+      expect(response.lastCDC.emaSlow).toBe(emaSlow.toFixed(4));
+      expect(response.lastCDC.close).toBe(51_000);
+    });
+
+    it('returns totalPnl as a string with 2 decimal places', async () => {
+      (tradingSvc.getTotalPnl as jest.Mock).mockResolvedValue(123.456);
+      const response = await controller.getStatus('live');
+      expect(response.totalPnl).toBe('123.46');
+    });
+
+    it('includes a timestamp in ISO 8601 format', async () => {
+      const response = await controller.getStatus('live');
+      expect(response.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    });
+
+    it('passes the mode to tradingService.getOpenPositions', async () => {
+      await controller.getStatus('sandbox');
+      expect(tradingSvc.getOpenPositions).toHaveBeenCalledWith('sandbox');
+    });
+
+    it('passes the mode to tradingService.getTotalPnl', async () => {
+      await controller.getStatus('sandbox');
+      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox');
+    });
+  });
+
+  // ── GET /api/trades ──────────────────────────────────────────────────────
+
+  describe('GET /api/trades', () => {
+    it('returns trades array, total count, and pnl', async () => {
+      const response = await controller.getTrades('live');
+      expect(response).toHaveProperty('trades');
+      expect(response).toHaveProperty('total');
+      expect(response).toHaveProperty('pnl');
+    });
+
+    it('returns an empty trades array and total=0 when there are no logs', async () => {
+      const response = await controller.getTrades('live');
+      expect(response.trades).toEqual([]);
+      expect(response.total).toBe(0);
+    });
+
+    it('returns the correct trade count when logs exist', async () => {
+      const logs = [makeTradeLog(), makeTradeLog({ id: 'log-2' })];
+      (tradingSvc.getTradeHistory as jest.Mock).mockResolvedValue(logs);
+      const response = await controller.getTrades('live');
+      expect(response.total).toBe(2);
+      expect(response.trades).toHaveLength(2);
+    });
+
+    it('formats pnl as a string with 2 decimal places', async () => {
+      (tradingSvc.getTotalPnl as jest.Mock).mockResolvedValue(99.999);
+      const response = await controller.getTrades('live');
+      expect(response.pnl).toBe('100.00');
+    });
+
+    it('passes the mode to both getTradeHistory and getTotalPnl', async () => {
+      await controller.getTrades('sandbox');
+      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('sandbox');
+      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox');
+    });
+
+    it('defaults mode to "live" when no query param is provided', async () => {
+      await controller.getTrades(undefined as any);
+      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('live');
+    });
+  });
+
+  // ── GET /api/indicator ───────────────────────────────────────────────────
+
+  describe('GET /api/indicator', () => {
+    it('returns an error object when fetchOHLCV returns an empty array', async () => {
+      (marketDataSvc.fetchOHLCV as jest.Mock).mockResolvedValue([]);
+      const response = await controller.getIndicator();
+      expect(response).toHaveProperty('error');
+    });
+
+    it('returns an error object when cdcService.calculate returns null', async () => {
+      const candles = Array.from({ length: 50 }, (_, i) => ({
+        timestamp: i * 3600_000, open: 100, high: 100, low: 100, close: 100, volume: 1,
+      }));
+      (marketDataSvc.fetchOHLCV as jest.Mock).mockResolvedValue(candles);
+      (cdcSvc.calculate as jest.Mock).mockReturnValue(null);
+      const response = await controller.getIndicator();
+      expect(response).toHaveProperty('error');
+    });
+
+    it('returns a correctly shaped indicator object on success', async () => {
+      const candles = Array.from({ length: 50 }, (_, i) => ({
+        timestamp: i * 3600_000, open: 100, high: 100, low: 100, close: 100, volume: 1,
+      }));
+      const result = makeCdcResult();
+      (marketDataSvc.fetchOHLCV as jest.Mock).mockResolvedValue(candles);
+      (cdcSvc.calculate as jest.Mock).mockReturnValue(result);
+      const response = await controller.getIndicator();
+      expect(response).toMatchObject({
+        zone:      result.zone,
+        zoneName:  result.zoneName,
+        zoneColor: result.zoneColor,
+        signal:    result.signal,
+        emaFast:   result.emaFast,
+        emaSlow:   result.emaSlow,
+        close:     result.close,
+        isBullish: result.isBullish,
+        isBearish: result.isBearish,
+      });
+    });
+
+    it('calls cdcService.calculate with the fetched candles', async () => {
+      const candles = [{ timestamp: 1, open: 1, high: 1, low: 1, close: 1, volume: 1 }];
+      (marketDataSvc.fetchOHLCV as jest.Mock).mockResolvedValue(candles);
+      await controller.getIndicator();
+      expect(cdcSvc.calculate).toHaveBeenCalledWith(candles);
+    });
+
+    it('fetches 200 candles from MarketDataService', async () => {
+      await controller.getIndicator();
+      expect(marketDataSvc.fetchOHLCV).toHaveBeenCalledWith(200);
+    });
+  });
+
+  // ── GET /api/health ──────────────────────────────────────────────────────
+
+  describe('GET /api/health', () => {
+    it('returns status="ok"', () => {
+      const response = controller.health();
+      expect(response.status).toBe('ok');
+    });
+
+    it('includes uptime as a number', () => {
+      const response = controller.health();
+      expect(typeof response.uptime).toBe('number');
+      expect(response.uptime).toBeGreaterThanOrEqual(0);
+    });
+
+    it('includes a timestamp in ISO 8601 format', () => {
+      const response = controller.health();
+      expect(response.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    });
+
+    it('is synchronous and never returns a Promise', () => {
+      const response = controller.health();
+      expect(response).not.toBeInstanceOf(Promise);
+    });
+  });
+});
