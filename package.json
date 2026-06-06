@@ -8,7 +8,27 @@
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
-    "install:all": "npm install && cd dashboard && npm install"
+    "install:all": "npm install && cd dashboard && npm install",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",
@@ -16,16 +36,23 @@
     "@nestjs/core": "^10.3.0",
     "@nestjs/platform-express": "^10.3.0",
     "@nestjs/schedule": "^4.0.0",
+    "@nestjs/typeorm": "^11.0.1",
     "axios": "^1.6.5",
     "ccxt": "^4.2.15",
+    "pg": "^8.21.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
-    "technicalindicators": "^3.1.0"
+    "technicalindicators": "^3.1.0",
+    "typeorm": "^1.0.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",
+    "@nestjs/testing": "^10.4.22",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.11.0",
     "concurrently": "^8.2.2",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "typescript": "^5.3.3"
   }
 }

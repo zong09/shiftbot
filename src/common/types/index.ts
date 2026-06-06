@@ -48,6 +48,7 @@ export interface Position {
   closeTime?: Date;
   closedPnl?: number;
   status: 'open' | 'closed';
+  mode: 'live' | 'sandbox';
 }
 
 export interface TradeLog {
@@ -61,4 +62,5 @@ export interface TradeLog {
   zone: CDCZone;
   signal: string;
   orderId?: string;
+  mode: 'live' | 'sandbox';
 }
