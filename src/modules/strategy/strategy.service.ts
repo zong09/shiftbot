@@ -8,7 +8,7 @@ import { NotificationService } from '../notification/notification.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { CDCZone, CDCResult } from '../../common/types';
 
-interface ModeContext {
+interface PairContext {
   lastZone: CDCZone | undefined;
   lastResult: CDCResult | null;
   isRunning: boolean;
@@ -27,14 +27,19 @@ function timeframeToCron(timeframe: string): string {
   return TIMEFRAME_CRON[timeframe] ?? '0 * * * *';
 }
 
+function ctxKey(mode: TradingMode, symbol: string): string {
+  return `${mode}:${symbol}`;
+}
+
+function jobName(mode: TradingMode, symbol: string): string {
+  return `strategy-${mode}-${symbol.replace(/[/:]/g, '_')}`;
+}
+
 @Injectable()
 export class StrategyService implements OnModuleInit {
   private readonly logger = new Logger(StrategyService.name);
 
-  private contexts: Record<TradingMode, ModeContext> = {
-    live:    { lastZone: undefined, lastResult: null, isRunning: false },
-    sandbox: { lastZone: undefined, lastResult: null, isRunning: false },
-  };
+  private contexts = new Map<string, PairContext>();
 
   constructor(
     private marketDataService: MarketDataService,
@@ -46,54 +51,77 @@ export class StrategyService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await Promise.all([
-      this.reschedule('live'),
-      this.reschedule('sandbox'),
-    ]);
+    const modes: TradingMode[] = ['live', 'sandbox'];
+    const allSettings = (await Promise.all(
+      modes.map(m => this.settingsService.seedIfEmpty(m)),
+    )).flat();
+    await Promise.all(allSettings.map(s => this.reschedule(s.mode as TradingMode, s.symbol)));
   }
 
-  async reschedule(mode: TradingMode): Promise<void> {
-    const jobName = `strategy-${mode}`;
-    const s = await this.settingsService.getSettings(mode);
+  async reschedule(mode: TradingMode, symbol: string): Promise<void> {
+    const name = jobName(mode, symbol);
+    const s = await this.settingsService.getSettings(mode, symbol);
     const cronExpr = timeframeToCron(s.timeframe);
 
-    if (this.schedulerRegistry.doesExist('cron', jobName)) {
-      this.schedulerRegistry.deleteCronJob(jobName);
+    if (this.schedulerRegistry.doesExist('cron', name)) {
+      this.schedulerRegistry.deleteCronJob(name);
+    }
+
+    if (!this.contexts.has(ctxKey(mode, symbol))) {
+      this.contexts.set(ctxKey(mode, symbol), { lastZone: undefined, lastResult: null, isRunning: false });
     }
 
     const job = new CronJob(cronExpr, () => {
-      this.runForMode(mode).catch((err) =>
-        this.logger.error(`[${mode}] unhandled error: ${err.message}`),
+      this.runForPair(mode, symbol).catch((err) =>
+        this.logger.error(`[${mode}][${symbol}] unhandled error: ${err.message}`),
       );
     });
 
-    this.schedulerRegistry.addCronJob(jobName, job);
+    this.schedulerRegistry.addCronJob(name, job);
     job.start();
 
-    this.logger.log(`[${mode}] scheduled cron: "${cronExpr}" (timeframe: ${s.timeframe})`);
+    this.logger.log(`[${mode}][${symbol}] scheduled cron: "${cronExpr}" (timeframe: ${s.timeframe})`);
   }
 
-  private async runForMode(mode: TradingMode): Promise<void> {
-    const ctx = this.contexts[mode];
+  async addPairJob(mode: TradingMode, symbol: string): Promise<void> {
+    await this.reschedule(mode, symbol);
+  }
+
+  removePairJob(mode: TradingMode, symbol: string): void {
+    const name = jobName(mode, symbol);
+    if (this.schedulerRegistry.doesExist('cron', name)) {
+      this.schedulerRegistry.deleteCronJob(name);
+    }
+    this.contexts.delete(ctxKey(mode, symbol));
+    this.logger.log(`[${mode}][${symbol}] pair job removed`);
+  }
+
+  private async runForPair(mode: TradingMode, symbol: string): Promise<void> {
+    const key = ctxKey(mode, symbol);
+    if (!this.contexts.has(key)) {
+      this.contexts.set(key, { lastZone: undefined, lastResult: null, isRunning: false });
+    }
+    const ctx = this.contexts.get(key)!;
+
     if (ctx.isRunning) {
-      this.logger.warn(`[${mode}] Strategy กำลังทำงาน รอให้เสร็จก่อน`);
+      this.logger.warn(`[${mode}][${symbol}] Strategy กำลังทำงาน รอให้เสร็จก่อน`);
       return;
     }
     ctx.isRunning = true;
 
     try {
-      const s = await this.settingsService.getSettings(mode);
+      const s = await this.settingsService.getSettings(mode, symbol);
 
       if (s.status === 'off') {
-        this.logger.debug(`[${mode}] status=off — skipped`);
+        this.logger.debug(`[${mode}][${symbol}] status=off — skipped`);
         return;
       }
 
-      this.logger.log(`=== [${mode}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
+      this.logger.log(`=== [${mode}][${symbol}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
 
-      const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, s.timeframe);
+      const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, s.timeframe, symbol);
       if (!candles.length) {
-        this.logger.warn(`[${mode}] ไม่ได้รับ candle data`);
+        this.logger.warn(`[${mode}][${symbol}] ไม่ได้รับ candle data`);
         return;
       }
 
@@ -103,36 +131,36 @@ export class StrategyService implements OnModuleInit {
       ctx.lastResult = result;
       const currentPrice = result.close;
 
-      await this.tradingService.checkSLTP(currentPrice, result.zone, mode);
+      await this.tradingService.checkSLTP(currentPrice, result.zone, mode, symbol);
 
       if (s.status === 'pause') {
-        this.logger.log(`[${mode}] status=pause — SLTP checked, signals skipped`);
+        this.logger.log(`[${mode}][${symbol}] status=pause — SLTP checked, signals skipped`);
         ctx.lastZone = result.zone;
         return;
       }
 
       if (result.signal === 'BUY') {
-        this.logger.log(`[${mode}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
+        this.logger.log(`[${mode}][${symbol}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
 
         if (mode === 'live') {
           await this.notificationService.sendSignal('BUY', result, currentPrice);
         }
 
-        if (!await this.tradingService.hasOpenPosition(mode)) {
-          const position = await this.tradingService.openLong(currentPrice, result.zone, mode);
+        if (!await this.tradingService.hasOpenPosition(mode, symbol)) {
+          const position = await this.tradingService.openLong(currentPrice, result.zone, mode, symbol);
           if (position && mode === 'live') {
             await this.notificationService.sendOpenPosition(position);
           }
         }
 
       } else if (result.signal === 'SELL') {
-        this.logger.log(`[${mode}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
+        this.logger.log(`[${mode}][${symbol}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
 
         if (mode === 'live') {
           await this.notificationService.sendSignal('SELL', result, currentPrice);
         }
 
-        const positions = await this.tradingService.getOpenPositions(mode);
+        const positions = await this.tradingService.getOpenPositions(mode, symbol);
         for (const pos of positions) {
           if (pos.side === 'long') {
             await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL', mode);
@@ -143,12 +171,12 @@ export class StrategyService implements OnModuleInit {
         }
 
       } else {
-        this.logger.log(`[${mode}] ⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
+        this.logger.log(`[${mode}][${symbol}] ⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
       }
 
       ctx.lastZone = result.zone;
     } catch (err) {
-      this.logger.error(`[${mode}] runStrategy error: ` + err.message);
+      this.logger.error(`[${mode}][${symbol}] runStrategy error: ` + err.message);
       if (mode === 'live') {
         await this.notificationService.sendError(err.message);
       }
@@ -158,13 +186,13 @@ export class StrategyService implements OnModuleInit {
   }
 
   async runStrategy(): Promise<void> {
-    await Promise.all([
-      this.runForMode('live'),
-      this.runForMode('sandbox'),
-    ]);
+    const allSettings = (await Promise.all(
+      (['live', 'sandbox'] as TradingMode[]).map(m => this.settingsService.getAllSettings(m)),
+    )).flat();
+    await Promise.all(allSettings.map(s => this.runForPair(s.mode as TradingMode, s.symbol)));
   }
 
-  getLastResult(mode: TradingMode = 'live'): CDCResult | null {
-    return this.contexts[mode].lastResult;
+  getLastResult(mode: TradingMode, symbol: string): CDCResult | null {
+    return this.contexts.get(ctxKey(mode, symbol))?.lastResult ?? null;
   }
 }

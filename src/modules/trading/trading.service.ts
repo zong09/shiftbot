@@ -22,42 +22,47 @@ export class TradingService {
     private settingsService: TradingSettingsService,
   ) {}
 
-  async hasOpenPosition(mode: TradingMode): Promise<boolean> {
-    const count = await this.positionRepo.count({ where: { status: 'open', mode } });
+  async hasOpenPosition(mode: TradingMode, symbol: string): Promise<boolean> {
+    const count = await this.positionRepo.count({ where: { status: 'open', mode, symbol } });
     return count > 0;
   }
 
-  async getOpenPositions(mode: TradingMode): Promise<Position[]> {
-    const rows = await this.positionRepo.find({ where: { status: 'open', mode } });
+  async getOpenPositions(mode: TradingMode, symbol?: string): Promise<Position[]> {
+    const where = symbol
+      ? { status: 'open', mode, symbol }
+      : { status: 'open', mode };
+    const rows = await this.positionRepo.find({ where });
     return rows as unknown as Position[];
   }
 
-  async getTradeHistory(mode: TradingMode): Promise<TradeLog[]> {
+  async getTradeHistory(mode: TradingMode, symbol?: string): Promise<TradeLog[]> {
+    const where = symbol ? { mode, symbol } : { mode };
     const rows = await this.tradeLogRepo.find({
-      where: { mode },
+      where,
       order: { timestamp: 'DESC' },
     });
     return rows as unknown as TradeLog[];
   }
 
-  async getTotalPnl(mode: TradingMode): Promise<number> {
-    const result = await this.tradeLogRepo
+  async getTotalPnl(mode: TradingMode, symbol?: string): Promise<number> {
+    const qb = this.tradeLogRepo
       .createQueryBuilder('t')
       .select('COALESCE(SUM(t.pnl), 0)', 'total')
-      .where('t.mode = :mode', { mode })
-      .getRawOne<{ total: string }>();
+      .where('t.mode = :mode', { mode });
+    if (symbol) qb.andWhere('t.symbol = :symbol', { symbol });
+    const result = await qb.getRawOne<{ total: string }>();
     return parseFloat(result.total);
   }
 
   // ──────────────────────────────────────────────
   //  OPEN LONG
   // ──────────────────────────────────────────────
-  async openLong(currentPrice: number, zone: CDCZone, mode: TradingMode): Promise<Position | null> {
-    const s = await this.settingsService.getSettings(mode);
+  async openLong(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<Position | null> {
+    const s = await this.settingsService.getSettings(mode, symbol);
 
-    const openCount = await this.positionRepo.count({ where: { status: 'open', mode } });
+    const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol } });
     if (openCount >= s.maxPositions) {
-      this.logger.warn(`[${mode}] ถึงจำนวน max position แล้ว ไม่เปิด position ใหม่`);
+      this.logger.warn(`[${mode}][${symbol}] ถึงจำนวน max position แล้ว ไม่เปิด position ใหม่`);
       return null;
     }
 
@@ -70,8 +75,8 @@ export class TradingService {
       let orderId: string | undefined;
 
       const exchange = this.marketDataService.getExchange(mode);
-      await exchange.setLeverage(s.leverage, s.symbol);
-      const order = await exchange.createMarketBuyOrder(s.symbol, quantity, {
+      await exchange.setLeverage(s.leverage, symbol);
+      const order = await exchange.createMarketBuyOrder(symbol, quantity, {
         reduceOnly: false,
       });
       entryPrice = order.average ?? currentPrice;
@@ -82,7 +87,7 @@ export class TradingService {
 
       const saved = await this.positionRepo.save(
         this.positionRepo.create({
-          symbol: s.symbol,
+          symbol,
           side:   'long',
           entryPrice,
           quantity,
@@ -95,7 +100,7 @@ export class TradingService {
 
       await this.tradeLogRepo.save(
         this.tradeLogRepo.create({
-          symbol:  s.symbol,
+          symbol,
           action:  'OPEN_LONG',
           price:   entryPrice,
           quantity,
@@ -107,12 +112,12 @@ export class TradingService {
       );
 
       this.logger.log(
-        `[${mode}] OPEN LONG | Price=${entryPrice} | Qty=${quantity} | SL=${stopLoss.toFixed(2)} | TP=${takeProfit.toFixed(2)}`,
+        `[${mode}][${symbol}] OPEN LONG | Price=${entryPrice} | Qty=${quantity} | SL=${stopLoss.toFixed(2)} | TP=${takeProfit.toFixed(2)}`,
       );
 
       return saved as unknown as Position;
     } catch (err) {
-      this.logger.error(`[${mode}] openLong error: ` + err.message);
+      this.logger.error(`[${mode}][${symbol}] openLong error: ` + err.message);
       return null;
     }
   }
@@ -127,11 +132,11 @@ export class TradingService {
     reason: 'SIGNAL' | 'SL' | 'TP',
     mode: TradingMode,
   ): Promise<void> {
-    const s = await this.settingsService.getSettings(mode);
+    const symbol = position.symbol;
 
     try {
       const exchange = this.marketDataService.getExchange(mode);
-      await exchange.createMarketSellOrder(s.symbol, position.quantity, {
+      await exchange.createMarketSellOrder(symbol, position.quantity, {
         reduceOnly: true,
       });
 
@@ -147,7 +152,7 @@ export class TradingService {
       const action = reason === 'SL' ? 'SL_HIT' : reason === 'TP' ? 'TP_HIT' : 'CLOSE_LONG';
       await this.tradeLogRepo.save(
         this.tradeLogRepo.create({
-          symbol:   s.symbol,
+          symbol,
           action,
           price:    currentPrice,
           quantity: position.quantity,
@@ -159,41 +164,41 @@ export class TradingService {
       );
 
       this.logger.log(
-        `[${mode}] CLOSE LONG (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
+        `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
     } catch (err) {
-      this.logger.error(`[${mode}] closeLong error: ` + err.message);
+      this.logger.error(`[${mode}][${symbol}] closeLong error: ` + err.message);
     }
   }
 
   // ──────────────────────────────────────────────
-  //  CLOSE ALL OPEN POSITIONS (manual / status=off)
+  //  CLOSE ALL OPEN POSITIONS for a specific symbol
   // ──────────────────────────────────────────────
-  async closeAllPositions(mode: TradingMode): Promise<void> {
-    const positions = await this.getOpenPositions(mode);
+  async closeAllPositions(mode: TradingMode, symbol: string): Promise<void> {
+    const positions = await this.getOpenPositions(mode, symbol);
     if (!positions.length) return;
 
-    const { last: currentPrice } = await this.marketDataService.fetchTicker();
+    const { last: currentPrice } = await this.marketDataService.fetchTicker(symbol);
     for (const pos of positions) {
       if (pos.side === 'long') {
         await this.closeLong(pos, currentPrice, CDCZone.STRONG_BEAR, 'SIGNAL', mode);
       }
     }
-    this.logger.log(`[${mode}] closeAllPositions: closed ${positions.length} position(s) at ${currentPrice}`);
+    this.logger.log(`[${mode}][${symbol}] closeAllPositions: closed ${positions.length} position(s) at ${currentPrice}`);
   }
 
   // ──────────────────────────────────────────────
   //  CHECK STOP LOSS / TAKE PROFIT
   // ──────────────────────────────────────────────
-  async checkSLTP(currentPrice: number, zone: CDCZone, mode: TradingMode): Promise<void> {
-    const positions = await this.getOpenPositions(mode);
+  async checkSLTP(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<void> {
+    const positions = await this.getOpenPositions(mode, symbol);
     for (const position of positions) {
       if (position.side === 'long') {
         if (currentPrice <= position.stopLoss) {
-          this.logger.warn(`[${mode}] Stop Loss triggered! Price=${currentPrice} SL=${position.stopLoss}`);
+          this.logger.warn(`[${mode}][${symbol}] Stop Loss triggered! Price=${currentPrice} SL=${position.stopLoss}`);
           await this.closeLong(position, currentPrice, zone, 'SL', mode);
         } else if (currentPrice >= position.takeProfit) {
-          this.logger.log(`[${mode}] Take Profit triggered! Price=${currentPrice} TP=${position.takeProfit}`);
+          this.logger.log(`[${mode}][${symbol}] Take Profit triggered! Price=${currentPrice} TP=${position.takeProfit}`);
           await this.closeLong(position, currentPrice, zone, 'TP', mode);
         }
       }

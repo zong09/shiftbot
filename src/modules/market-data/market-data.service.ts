@@ -9,8 +9,6 @@ export class MarketDataService implements OnModuleInit {
   private exchangeLive:   ccxt.binanceusdm;
   private exchangeDemo:   ccxt.binanceusdm;
   private exchangePublic: ccxt.binanceusdm; // no-auth — for OHLCV/ticker (public endpoints)
-  private readonly symbol    = 'BTC/USDT:USDT';
-  private readonly timeframe = '1h';
 
   constructor(private configService: ConfigService) {}
 
@@ -51,37 +49,33 @@ export class MarketDataService implements OnModuleInit {
 
     try {
       await this.exchangePublic.loadMarkets();
-      this.logger.log(`[Public] โหลด markets สำเร็จ | Symbol: ${this.symbol}`);
+      this.logger.log('[Public] โหลด markets สำเร็จ');
     } catch (err) {
       this.logger.error('[Public] loadMarkets ไม่ได้: ' + err.message);
     }
 
     try {
       await this.exchangeLive.loadMarkets();
-      this.logger.log(`[Live] เชื่อมต่อ Binance Futures สำเร็จ | Symbol: ${this.symbol}`);
+      this.logger.log('[Live] เชื่อมต่อ Binance Futures สำเร็จ');
     } catch (err) {
       this.logger.error('[Live] เชื่อมต่อ Binance ไม่ได้: ' + err.message);
     }
 
     if (demoKey) {
       try {
-        await this.exchangeDemo.loadMarkets();
-        this.logger.log(`[Demo] เชื่อมต่อ Binance Testnet สำเร็จ | Symbol: ${this.symbol}`);
+        await this.exchangeDemo.fetchBalance();
+        this.logger.log('[Demo] เชื่อมต่อ demo-fapi.binance.com สำเร็จ');
       } catch (err) {
-        this.logger.warn('[Demo] เชื่อมต่อ Binance Testnet ไม่ได้: ' + err.message);
+        this.logger.warn('[Demo] เชื่อมต่อ demo-fapi.binance.com ไม่ได้: ' + err.message);
       }
     } else {
       this.logger.warn('[Demo] BINANCE_DEMO_API_KEY ไม่ได้ตั้งค่า — sandbox mode ไม่สามารถส่ง order ได้');
     }
   }
 
-  /**
-   * ดึง OHLCV data จาก Binance Futures
-   * @param limit จำนวน candle (default 200)
-   */
-  async fetchOHLCV(limit = 200): Promise<OHLCV[]> {
+  async fetchOHLCV(limit = 200, symbol = 'BTC/USDT:USDT'): Promise<OHLCV[]> {
     try {
-      const raw = await this.exchangePublic.fetchOHLCV(this.symbol, this.timeframe, undefined, limit);
+      const raw = await this.exchangePublic.fetchOHLCV(symbol, '1h', undefined, limit);
       return raw.map(([timestamp, open, high, low, close, volume]) => ({
         timestamp: timestamp as number,
         open:   open   as number,
@@ -91,18 +85,14 @@ export class MarketDataService implements OnModuleInit {
         volume: volume as number,
       }));
     } catch (err) {
-      this.logger.error('fetchOHLCV error: ' + err.message);
+      this.logger.error(`fetchOHLCV(${symbol}) error: ` + err.message);
       return [];
     }
   }
 
-  /**
-   * ดึง OHLCV data ด้วย timeframe ที่กำหนด (override bot default)
-   */
-  async fetchOHLCVByTimeframe(limit = 200, timeframe?: string): Promise<OHLCV[]> {
-    const tf = timeframe ?? this.timeframe;
+  async fetchOHLCVByTimeframe(limit = 200, timeframe = '1h', symbol = 'BTC/USDT:USDT'): Promise<OHLCV[]> {
     try {
-      const raw = await this.exchangePublic.fetchOHLCV(this.symbol, tf, undefined, limit);
+      const raw = await this.exchangePublic.fetchOHLCV(symbol, timeframe, undefined, limit);
       return raw.map(([timestamp, open, high, low, close, volume]) => ({
         timestamp: timestamp as number,
         open:   open   as number,
@@ -112,23 +102,28 @@ export class MarketDataService implements OnModuleInit {
         volume: volume as number,
       }));
     } catch (err) {
-      this.logger.error(`fetchOHLCVByTimeframe(${tf}) error: ` + err.message);
+      this.logger.error(`fetchOHLCVByTimeframe(${timeframe}, ${symbol}) error: ` + err.message);
       return [];
     }
   }
 
-  /**
-   * ดึง ticker ราคาปัจจุบัน
-   */
-  async fetchTicker(): Promise<{ bid: number; ask: number; last: number }> {
-    const ticker = await this.exchangePublic.fetchTicker(this.symbol);
+  async fetchTicker(symbol = 'BTC/USDT:USDT'): Promise<{ bid: number; ask: number; last: number }> {
+    const ticker = await this.exchangePublic.fetchTicker(symbol);
     return { bid: ticker.bid, ask: ticker.ask, last: ticker.last };
+  }
+
+  async fetchBalance(mode: 'live' | 'sandbox' = 'live'): Promise<{ total: number; free: number; used: number }> {
+    const exchange = this.getExchange(mode);
+    // Use raw /fapi/v3/balance — ccxt fetchBalance() maps fields incorrectly for USDM futures
+    // Response is array: [{asset, balance, availableBalance, ...}]
+    const raw = await (exchange as any).fapiPrivateV3GetBalance({});
+    const usdt = Array.isArray(raw) ? raw.find((b: any) => b.asset === 'USDT') : undefined;
+    const total = parseFloat(usdt?.balance          ?? '0');
+    const free  = parseFloat(usdt?.availableBalance ?? '0');
+    return { total, free, used: total - free };
   }
 
   getExchange(mode: 'live' | 'sandbox' = 'live'): ccxt.binanceusdm {
     return mode === 'sandbox' ? this.exchangeDemo : this.exchangeLive;
   }
-
-  getSymbol(): string { return this.symbol; }
-  getTimeframe(): string { return this.timeframe; }
 }

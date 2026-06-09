@@ -6,22 +6,14 @@ import { TradingSettingsEntity } from '../../database/entities/trading-settings.
 export type TradingMode = 'live' | 'sandbox';
 export type TradingStatus = 'on' | 'pause' | 'off';
 
-const DEFAULTS: Record<TradingMode, Omit<TradingSettingsEntity, 'mode' | 'updatedAt'>> = {
-  live: {
-    symbol: 'BTC/USDT:USDT', timeframe: '1h',
-    leverage: 5, orderSizeUsdt: 100, maxPositions: 1,
-    stopLossPct: 2.0, takeProfitPct: 4.0,
-    emaFast: 12, emaSlow: 26,
-    status: 'on',
-  },
-  sandbox: {
-    symbol: 'BTC/USDT:USDT', timeframe: '1h',
-    leverage: 5, orderSizeUsdt: 100, maxPositions: 1,
-    stopLossPct: 2.0, takeProfitPct: 4.0,
-    emaFast: 12, emaSlow: 26,
-    status: 'on',
-  },
-};
+type SettingsFields = Omit<TradingSettingsEntity, 'mode' | 'symbol' | 'updatedAt'>;
+
+function defaultFields(): SettingsFields {
+  return {
+    timeframe: '1h', leverage: 5, orderSizeUsdt: 100, maxPositions: 1,
+    stopLossPct: 2.0, takeProfitPct: 4.0, emaFast: 12, emaSlow: 26, status: 'on',
+  };
+}
 
 @Injectable()
 export class TradingSettingsService {
@@ -30,26 +22,50 @@ export class TradingSettingsService {
     private repo: Repository<TradingSettingsEntity>,
   ) {}
 
-  async getSettings(mode: TradingMode): Promise<TradingSettingsEntity> {
-    let row = await this.repo.findOne({ where: { mode } });
+  async getSettings(mode: TradingMode, symbol: string): Promise<TradingSettingsEntity> {
+    let row = await this.repo.findOne({ where: { mode, symbol } });
     if (!row) {
-      row = await this.repo.save(this.repo.create({ mode, ...DEFAULTS[mode] }));
+      row = await this.repo.save(this.repo.create({ mode, symbol, ...defaultFields() }));
     }
     return row;
   }
 
-  async updateSettings(
-    mode: TradingMode,
-    dto: Partial<Omit<TradingSettingsEntity, 'mode' | 'updatedAt'>>,
-  ): Promise<TradingSettingsEntity> {
-    await this.repo.upsert({ mode, ...dto }, ['mode']);
-    return this.getSettings(mode);
+  async getAllSettings(mode: TradingMode): Promise<TradingSettingsEntity[]> {
+    return this.repo.find({ where: { mode } });
   }
 
-  async getAllSettings(): Promise<{ live: TradingSettingsEntity; sandbox: TradingSettingsEntity }> {
+  // Ensures at least BTC/USDT:USDT exists for each mode on first boot.
+  async seedIfEmpty(mode: TradingMode): Promise<TradingSettingsEntity[]> {
+    const rows = await this.getAllSettings(mode);
+    if (!rows.length) {
+      return [await this.addPair(mode, 'BTC/USDT:USDT')];
+    }
+    return rows;
+  }
+
+  async updateSettings(
+    mode: TradingMode,
+    symbol: string,
+    dto: Partial<SettingsFields>,
+  ): Promise<TradingSettingsEntity> {
+    await this.repo.upsert({ mode, symbol, ...dto }, ['mode', 'symbol']);
+    return this.getSettings(mode, symbol);
+  }
+
+  async addPair(mode: TradingMode, symbol: string, overrides?: Partial<SettingsFields>): Promise<TradingSettingsEntity> {
+    const existing = await this.repo.findOne({ where: { mode, symbol } });
+    if (existing) return existing;
+    return this.repo.save(this.repo.create({ mode, symbol, ...defaultFields(), ...overrides }));
+  }
+
+  async removePair(mode: TradingMode, symbol: string): Promise<void> {
+    await this.repo.delete({ mode, symbol });
+  }
+
+  async getAllGrouped(): Promise<{ live: TradingSettingsEntity[]; sandbox: TradingSettingsEntity[] }> {
     const [live, sandbox] = await Promise.all([
-      this.getSettings('live'),
-      this.getSettings('sandbox'),
+      this.seedIfEmpty('live'),
+      this.seedIfEmpty('sandbox'),
     ]);
     return { live, sandbox };
   }

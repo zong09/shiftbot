@@ -3,10 +3,10 @@ import { Entity, PrimaryColumn, Column, UpdateDateColumn } from 'typeorm';
 @Entity('trading_settings')
 export class TradingSettingsEntity {
   @PrimaryColumn()
-  mode: string; // 'live' | 'sandbox'
+  mode: string;  // 'live' | 'sandbox'
 
-  @Column({ default: 'BTC/USDT:USDT' })
-  symbol: string;
+  @PrimaryColumn()
+  symbol: string;  // e.g. 'BTC/USDT:USDT'
 
   @Column({ default: '1h' })
   timeframe: string;
@@ -33,7 +33,7 @@ export class TradingSettingsEntity {
   emaSlow: number;
 
   @Column({ default: 'on' })
-  status: string; // 'on' | 'pause' | 'off'
+  status: string;  // 'on' | 'pause' | 'off'
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
