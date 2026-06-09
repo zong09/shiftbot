@@ -65,9 +65,11 @@ function makeNotificationService(): jest.Mocked<Partial<NotificationService>> {
 }
 
 function makeSettingsService(): jest.Mocked<Partial<TradingSettingsService>> {
-  const defaults = { symbol: 'BTC/USDT:USDT', timeframe: '1h', emaFast: 12, emaSlow: 26 };
+  const defaults = { symbol: 'BTC/USDT:USDT', timeframe: '1h', emaFast: 12, emaSlow: 26, status: 'on', mode: 'live' };
   return {
-    getSettings: jest.fn().mockResolvedValue(defaults),
+    getSettings:   jest.fn().mockResolvedValue(defaults),
+    getAllSettings: jest.fn().mockImplementation((mode) => Promise.resolve([{ ...defaults, mode }])),
+    seedIfEmpty:   jest.fn().mockImplementation((mode) => Promise.resolve([{ ...defaults, mode }])),
   } as any;
 }
 
@@ -131,8 +133,8 @@ describe('StrategyService', () => {
       const result = makeCdcResult({ signal: 'HOLD', close: 51_000 });
       await buildModule(result);
       await service.runStrategy();
-      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'live');
-      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'sandbox');
+      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'live', 'BTC/USDT:USDT');
+      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'sandbox', 'BTC/USDT:USDT');
     });
 
     // ── BUY path ────────────────────────────────────────────────────────────
@@ -141,8 +143,8 @@ describe('StrategyService', () => {
       const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
       await buildModule(result);
       await service.runStrategy();
-      expect(tradingSvc.openLong).toHaveBeenCalledWith(result.close, result.zone, 'live');
-      expect(tradingSvc.openLong).toHaveBeenCalledWith(result.close, result.zone, 'sandbox');
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(result.close, result.zone, 'live', 'BTC/USDT:USDT');
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(result.close, result.zone, 'sandbox', 'BTC/USDT:USDT');
     });
 
     it('sends a BUY notification for live mode only when signal is BUY', async () => {
@@ -239,23 +241,23 @@ describe('StrategyService', () => {
   describe('getLastResult()', () => {
     it('returns null before any strategy run', async () => {
       await buildModule();
-      expect(service.getLastResult('live')).toBeNull();
-      expect(service.getLastResult('sandbox')).toBeNull();
+      expect(service.getLastResult('live', 'BTC/USDT:USDT')).toBeNull();
+      expect(service.getLastResult('sandbox', 'BTC/USDT:USDT')).toBeNull();
     });
 
     it('returns the last CDCResult after a successful strategy run', async () => {
       const result = makeCdcResult({ signal: 'HOLD', zone: CDCZone.BULL });
       await buildModule(result);
       await service.runStrategy();
-      expect(service.getLastResult('live')).toEqual(result);
-      expect(service.getLastResult('sandbox')).toEqual(result);
+      expect(service.getLastResult('live', 'BTC/USDT:USDT')).toEqual(result);
+      expect(service.getLastResult('sandbox', 'BTC/USDT:USDT')).toEqual(result);
     });
 
     it('defaults mode to "live" when no argument is passed', async () => {
       const result = makeCdcResult({ signal: 'HOLD' });
       await buildModule(result);
       await service.runStrategy();
-      expect(service.getLastResult()).toEqual(result);
+      expect(service.getLastResult('live', 'BTC/USDT:USDT')).toEqual(result);
     });
   });
 });

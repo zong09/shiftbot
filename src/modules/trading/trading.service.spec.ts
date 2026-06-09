@@ -110,18 +110,18 @@ describe('TradingService', () => {
   describe('hasOpenPosition()', () => {
     it('returns true when at least one open position exists for the mode', async () => {
       positionRepo.count.mockResolvedValue(1);
-      expect(await service.hasOpenPosition('sandbox')).toBe(true);
+      expect(await service.hasOpenPosition('sandbox', 'BTC/USDT:USDT')).toBe(true);
     });
 
     it('returns false when no open positions exist for the mode', async () => {
       positionRepo.count.mockResolvedValue(0);
-      expect(await service.hasOpenPosition('sandbox')).toBe(false);
+      expect(await service.hasOpenPosition('sandbox', 'BTC/USDT:USDT')).toBe(false);
     });
 
     it('queries with the correct mode filter', async () => {
       positionRepo.count.mockResolvedValue(0);
-      await service.hasOpenPosition('live');
-      expect(positionRepo.count).toHaveBeenCalledWith({ where: { status: 'open', mode: 'live' } });
+      await service.hasOpenPosition('live', 'BTC/USDT:USDT');
+      expect(positionRepo.count).toHaveBeenCalledWith({ where: { status: 'open', mode: 'live', symbol: 'BTC/USDT:USDT' } });
     });
   });
 
@@ -185,44 +185,45 @@ describe('TradingService', () => {
     });
 
     it('saves a new open position to the repository', async () => {
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox');
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.save).toHaveBeenCalled();
       expect(result).toMatchObject({ side: 'long', status: 'open', mode: 'sandbox' });
     });
 
     it('writes an OPEN_LONG trade log entry', async () => {
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox');
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       expect(tradeLogRepo.save).toHaveBeenCalled();
       const savedLog = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
       expect(savedLog.action).toBe('OPEN_LONG');
       expect(savedLog.signal).toBe('BUY');
     });
 
-    it('calculates stopLoss and takeProfit relative to entry price', async () => {
-      const price = 50_000;
-      await service.openLong(price, CDCZone.STRONG_BULL, 'sandbox');
+    it('calculates stopLoss and takeProfit relative to fill price', async () => {
+      // exchange fill price is 50_100 (mock default: order.average = 50_100)
+      const fillPrice = 50_100;
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
-      expect(savedPos.stopLoss).toBeCloseTo(price * 0.98, 0);
-      expect(savedPos.takeProfit).toBeCloseTo(price * 1.04, 0);
+      expect(savedPos.stopLoss).toBeCloseTo(fillPrice * 0.98, 0);
+      expect(savedPos.takeProfit).toBeCloseTo(fillPrice * 1.04, 0);
     });
 
-    it('uses a sandbox order ID (not the exchange) in sandbox mode', async () => {
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox');
-      expect(exchange.createMarketBuyOrder).not.toHaveBeenCalled();
+    it('places a market buy order via the exchange in sandbox mode', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
+      expect(exchange.createMarketBuyOrder).toHaveBeenCalled();
       const savedLog = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
-      expect(savedLog.orderId).toMatch(/^sandbox-/);
+      expect(savedLog.orderId).toBe('order-live-1');
     });
 
     it('returns null when maxPositions limit is already reached', async () => {
       positionRepo.count.mockResolvedValue(1);
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox');
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       expect(result).toBeNull();
       expect(positionRepo.save).not.toHaveBeenCalled();
     });
 
     it('returns null and does not throw when positionRepo.save rejects', async () => {
       positionRepo.save.mockRejectedValue(new Error('DB error'));
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox');
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       expect(result).toBeNull();
     });
   });
@@ -235,32 +236,32 @@ describe('TradingService', () => {
     });
 
     it('calls setLeverage on the exchange before placing an order', async () => {
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live');
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
       expect(exchange.setLeverage).toHaveBeenCalledWith(5, 'BTC/USDT:USDT');
     });
 
     it('calls createMarketBuyOrder on the exchange', async () => {
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live');
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
       expect(exchange.createMarketBuyOrder).toHaveBeenCalled();
     });
 
     it('uses the exchange fill price (order.average) as entryPrice', async () => {
       exchange.createMarketBuyOrder.mockResolvedValue({ average: 50_200, id: 'ord-x' });
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live');
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
       const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
       expect(savedPos.entryPrice).toBe(50_200);
     });
 
     it('falls back to currentPrice when order.average is null', async () => {
       exchange.createMarketBuyOrder.mockResolvedValue({ average: null, id: 'ord-x' });
-      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live');
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
       const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
       expect(savedPos.entryPrice).toBe(50_000);
     });
 
     it('returns null when the exchange throws', async () => {
       exchange.setLeverage.mockRejectedValue(new Error('network error'));
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'live');
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
       expect(result).toBeNull();
     });
   });
@@ -305,10 +306,12 @@ describe('TradingService', () => {
       expect(logArg.action).toBe('TP_HIT');
     });
 
-    it('does not call createMarketSellOrder in sandbox mode', async () => {
+    it('calls createMarketSellOrder via the exchange in sandbox mode', async () => {
       const pos = makeOpenPosition();
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'sandbox');
-      expect(exchange.createMarketSellOrder).not.toHaveBeenCalled();
+      expect(exchange.createMarketSellOrder).toHaveBeenCalledWith(
+        'BTC/USDT:USDT', 0.01, { reduceOnly: true },
+      );
     });
 
     it('computes negative pnl correctly when price is below entry', async () => {
@@ -346,14 +349,14 @@ describe('TradingService', () => {
   describe('checkSLTP()', () => {
     it('does nothing when there are no open positions', async () => {
       positionRepo.find.mockResolvedValue([]);
-      await service.checkSLTP(49_000, CDCZone.BEAR, 'sandbox');
+      await service.checkSLTP(49_000, CDCZone.BEAR, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.update).not.toHaveBeenCalled();
     });
 
     it('triggers closeLong with reason SL when price is at or below stopLoss', async () => {
       const pos = makeOpenPosition({ entryPrice: 50_000, stopLoss: 49_000, takeProfit: 52_000 });
       positionRepo.find.mockResolvedValue([pos]);
-      await service.checkSLTP(49_000, CDCZone.BEAR, 'sandbox');
+      await service.checkSLTP(49_000, CDCZone.BEAR, 'sandbox', 'BTC/USDT:USDT');
       const logArg = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
       expect(logArg.action).toBe('SL_HIT');
     });
@@ -361,7 +364,7 @@ describe('TradingService', () => {
     it('triggers closeLong with reason TP when price is at or above takeProfit', async () => {
       const pos = makeOpenPosition({ entryPrice: 50_000, stopLoss: 49_000, takeProfit: 52_000 });
       positionRepo.find.mockResolvedValue([pos]);
-      await service.checkSLTP(52_000, CDCZone.STRONG_BULL, 'sandbox');
+      await service.checkSLTP(52_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       const logArg = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
       expect(logArg.action).toBe('TP_HIT');
     });
@@ -369,14 +372,14 @@ describe('TradingService', () => {
     it('does not trigger SL or TP when price is between the two levels', async () => {
       const pos = makeOpenPosition({ entryPrice: 50_000, stopLoss: 49_000, takeProfit: 52_000 });
       positionRepo.find.mockResolvedValue([pos]);
-      await service.checkSLTP(50_500, CDCZone.STRONG_BULL, 'sandbox');
+      await service.checkSLTP(50_500, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.update).not.toHaveBeenCalled();
     });
 
     it('skips non-long positions (short) without calling closeLong', async () => {
       const shortPos = makeOpenPosition({ side: 'short', stopLoss: 51_000, takeProfit: 48_000 });
       positionRepo.find.mockResolvedValue([shortPos]);
-      await service.checkSLTP(51_500, CDCZone.STRONG_BEAR, 'sandbox');
+      await service.checkSLTP(51_500, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.update).not.toHaveBeenCalled();
     });
   });

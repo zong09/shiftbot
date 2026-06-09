@@ -73,9 +73,7 @@ function makeStrategyService(): jest.Mocked<Partial<StrategyService>> {
 
 function makeMarketDataService(): jest.Mocked<Partial<MarketDataService>> {
   return {
-    getSymbol:    jest.fn().mockReturnValue('BTC/USDT:USDT'),
-    getTimeframe: jest.fn().mockReturnValue('1h'),
-    fetchOHLCV:   jest.fn().mockResolvedValue([]),
+    fetchOHLCV: jest.fn().mockResolvedValue([]),
   } as any;
 }
 
@@ -107,7 +105,7 @@ describe('DashboardController', () => {
         { provide: StrategyService,       useValue: strategySvc },
         { provide: MarketDataService,     useValue: marketDataSvc },
         { provide: CdcActionZoneService,  useValue: cdcSvc },
-        { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), updateSettings: jest.fn().mockResolvedValue({}) } },
+        { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), getAllSettings: jest.fn().mockResolvedValue([{ symbol: 'BTC/USDT:USDT', timeframe: '1h', status: 'on' }]), updateSettings: jest.fn().mockResolvedValue({}) } },
       ],
     }).compile();
 
@@ -128,7 +126,7 @@ describe('DashboardController', () => {
       expect(response.mode).toBe('live');
     });
 
-    it('returns symbol and timeframe from MarketDataService', async () => {
+    it('returns symbol and timeframe from first pair settings', async () => {
       const response = await controller.getStatus('live');
       expect(response.symbol).toBe('BTC/USDT:USDT');
       expect(response.timeframe).toBe('1h');
@@ -190,12 +188,12 @@ describe('DashboardController', () => {
 
     it('passes the mode to tradingService.getOpenPositions', async () => {
       await controller.getStatus('sandbox');
-      expect(tradingSvc.getOpenPositions).toHaveBeenCalledWith('sandbox');
+      expect(tradingSvc.getOpenPositions).toHaveBeenCalledWith('sandbox', 'BTC/USDT:USDT');
     });
 
     it('passes the mode to tradingService.getTotalPnl', async () => {
       await controller.getStatus('sandbox');
-      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox');
+      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox', 'BTC/USDT:USDT');
     });
   });
 
@@ -231,13 +229,13 @@ describe('DashboardController', () => {
 
     it('passes the mode to both getTradeHistory and getTotalPnl', async () => {
       await controller.getTrades('sandbox');
-      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('sandbox');
-      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox');
+      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('sandbox', undefined);
+      expect(tradingSvc.getTotalPnl).toHaveBeenCalledWith('sandbox', undefined);
     });
 
     it('defaults mode to "live" when no query param is provided', async () => {
       await controller.getTrades(undefined as any);
-      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('live');
+      expect(tradingSvc.getTradeHistory).toHaveBeenCalledWith('live', undefined);
     });
   });
 
@@ -290,7 +288,7 @@ describe('DashboardController', () => {
 
     it('fetches 200 candles from MarketDataService', async () => {
       await controller.getIndicator();
-      expect(marketDataSvc.fetchOHLCV).toHaveBeenCalledWith(200);
+      expect(marketDataSvc.fetchOHLCV).toHaveBeenCalledWith(200, 'BTC/USDT:USDT');
     });
   });
 
