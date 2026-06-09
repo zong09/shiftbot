@@ -4,7 +4,7 @@ import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import PriceChart   from './components/PriceChart.jsx';
 import Settings      from './components/Settings.jsx';
-import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings } from './api.js';
+import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair } from './api.js';
 
 const REFRESH_INTERVAL = 30_000;
 
@@ -27,6 +27,7 @@ export default function App() {
   const [candles,        setCandles]        = useState([]);
   const [indicators,     setIndicators]     = useState([]);
   const [chartTimeframe, setChartTimeframe] = useState('1h');
+  const [chartSymbol,    setChartSymbol]    = useState('BTC/USDT:USDT');
   const [lastFetch,      setLastFetch]      = useState(null);
   const [loading,        setLoading]        = useState(true);
   const [error,          setError]          = useState(null);
@@ -35,13 +36,13 @@ export default function App() {
   const [activeTab,      setActiveTab]      = useState('chart');
   const prevModeRef = useRef(null);
 
-  const loadData = useCallback(async (activeMode, activeTf) => {
+  const loadData = useCallback(async (activeMode, activeTf, activeSym) => {
     try {
       setError(null);
       const [s, t, c, cfg] = await Promise.all([
         fetchStatus(activeMode),
         fetchTrades(activeMode),
-        fetchCandles(activeTf),
+        fetchCandles(activeTf, activeSym),
         fetchSettings(),
       ]);
       setStatus(s);
@@ -58,13 +59,13 @@ export default function App() {
     }
   }, []);
 
-  // reload when mode or chartTimeframe changes
+  // reload when mode or chartTimeframe or chartSymbol changes
   useEffect(() => {
     setLoading(true);
-    loadData(mode, chartTimeframe);
-    const timer = setInterval(() => loadData(mode, chartTimeframe), REFRESH_INTERVAL);
+    loadData(mode, chartTimeframe, chartSymbol);
+    const timer = setInterval(() => loadData(mode, chartTimeframe, chartSymbol), REFRESH_INTERVAL);
     return () => clearInterval(timer);
-  }, [mode, chartTimeframe, loadData]);
+  }, [mode, chartTimeframe, chartSymbol, loadData]);
 
   // countdown display
   useEffect(() => {
@@ -72,16 +73,19 @@ export default function App() {
     return () => clearInterval(tick);
   }, [lastFetch]);
 
-  // sync chart TF to settings TF on first load and on mode change
+  // sync chart TF + symbol to first pair on mode change
   useEffect(() => {
-    const tf = settings?.[mode]?.timeframe;
-    if (tf && prevModeRef.current !== mode) {
+    const pairs = settings?.[mode];
+    const firstPair = Array.isArray(pairs) ? pairs[0] : null;
+    if (firstPair && prevModeRef.current !== mode) {
       prevModeRef.current = mode;
-      setChartTimeframe(tf);
+      if (firstPair.timeframe) setChartTimeframe(firstPair.timeframe);
+      if (firstPair.symbol)    setChartSymbol(firstPair.symbol);
     }
   }, [mode, settings]);
 
   const isSandbox = mode === 'sandbox';
+  const firstPairStatus = settings?.[mode]?.[0]?.status ?? null;
 
   return (
     <div style={{ minHeight: '100vh', padding: '20px 24px', maxWidth: 1100, margin: '0 auto' }}>
@@ -92,7 +96,9 @@ export default function App() {
           <h1 style={{ fontSize: 24, fontWeight: 800, background: 'linear-gradient(135deg,#22c55e,#3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             ShiftBot
           </h1>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>Binance Futures · BTC/USDT</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            Binance Futures · {chartSymbol.replace(':USDT', '')}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {lastFetch && (
@@ -102,7 +108,7 @@ export default function App() {
             </div>
           )}
           <button
-            onClick={() => loadData(mode)}
+            onClick={() => loadData(mode, chartTimeframe, chartSymbol)}
             disabled={loading}
             style={{
               background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8,
@@ -162,27 +168,60 @@ export default function App() {
           settings={settings}
           activeMode={mode}
           onModeChange={setMode}
-          onSave={async (m, data) => {
-            await updateSettings(m, data);
-            if (m === mode) setChartTimeframe(data.timeframe);
-            await loadData(mode, m === mode ? data.timeframe : chartTimeframe);
+          onSave={async (m, symbol, data) => {
+            await updateSettings(m, { symbol, ...data });
+            if (m === mode && symbol === chartSymbol && data.timeframe) {
+              setChartTimeframe(data.timeframe);
+            }
+            await loadData(mode, chartTimeframe, chartSymbol);
+          }}
+          onAddPair={async (m, symbol) => {
+            await addPair(m, symbol);
+            await loadData(mode, chartTimeframe, chartSymbol);
+          }}
+          onRemovePair={async (m, symbol) => {
+            await removePair(m, symbol);
+            if (m === mode && symbol === chartSymbol) {
+              const remaining = (settings?.[m] ?? []).filter(p => p.symbol !== symbol);
+              if (remaining[0]) setChartSymbol(remaining[0].symbol);
+            }
+            await loadData(mode, chartTimeframe, chartSymbol);
           }}
         />
       ) : (
         <>
           <StatusCard
             status={status}
-            botStatus={settings?.[mode]?.status}
+            botStatus={firstPairStatus}
             onStatusChange={async (newStatus) => {
-              await updateSettings(mode, { status: newStatus });
-              await loadData(mode, chartTimeframe);
+              const pairs = settings?.[mode] ?? [];
+              await Promise.all(pairs.map(p => updateSettings(mode, { symbol: p.symbol, status: newStatus })));
+              await loadData(mode, chartTimeframe, chartSymbol);
             }}
           />
+          {(settings?.[mode]?.length ?? 0) > 1 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              {settings[mode].map(p => (
+                <button
+                  key={p.symbol}
+                  onClick={() => setChartSymbol(p.symbol)}
+                  style={{
+                    padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                    fontSize: 12, fontWeight: 700,
+                    background: chartSymbol === p.symbol ? '#3b82f6' : '#1e293b',
+                    color: chartSymbol === p.symbol ? '#fff' : '#64748b',
+                  }}
+                >
+                  {p.symbol.replace(':USDT', '')}
+                </button>
+              ))}
+            </div>
+          )}
           <PriceChart
             candles={candles}
             indicators={indicators}
             positions={status?.openPositions ?? []}
-            symbol={status?.symbol}
+            symbol={chartSymbol}
             chartTimeframe={chartTimeframe}
             onTimeframeChange={setChartTimeframe}
           />

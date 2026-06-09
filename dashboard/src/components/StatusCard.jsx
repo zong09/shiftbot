@@ -97,6 +97,24 @@ export default function StatusCard({ status, botStatus, onStatusChange }) {
         </div>
       </div>
 
+      {/* Balance row */}
+      {status.balance && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+          {[
+            { label: 'Balance',   value: status.balance.total },
+            { label: 'Available', value: status.balance.free  },
+            { label: 'In Use',    value: status.balance.used  },
+          ].map(({ label, value }) => (
+            <div key={label} style={s.item}>
+              <div style={s.label}>{label}</div>
+              <div style={{ ...s.value, fontSize: 16 }}>
+                {value > 0 ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} <span style={{ fontSize: 11, color: '#64748b' }}>USDT</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={s.label}>CDC Zone Bar</div>
       <ZoneBar currentZone={cdc?.zone} />
     </div>

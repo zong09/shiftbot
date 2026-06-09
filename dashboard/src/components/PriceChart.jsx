@@ -271,7 +271,7 @@ export default function PriceChart({
             paddingRight: 12, marginRight: 4,
             borderRight: `1px solid ${GRID_COLOR}`,
           }}>
-            {symbol}
+            {symbol.replace(':USDT', '')}
           </span>
         )}
         <div style={{ display: 'flex', paddingLeft: symbol ? 8 : 0 }}>
