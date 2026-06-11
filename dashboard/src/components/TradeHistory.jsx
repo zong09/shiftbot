@@ -77,7 +77,7 @@ export default function TradeHistory({ trades = [] }) {
                   {hasPnl ? `${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} USDT` : '—'}
                 </td>
                 <td className={`${TD_CLASS} text-secondary text-[11px]`}>
-                  {new Date(t.timestamp).toLocaleString('th-TH')}
+                  {new Date(t.timestamp).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}
                 </td>
               </tr>
             );

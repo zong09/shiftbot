@@ -30,7 +30,7 @@ export default function Positions({ positions = [] }) {
               <td className={`${TD_CLASS} text-bear`}>{p.stopLoss?.toFixed(2)}</td>
               <td className={`${TD_CLASS} text-bull`}>{p.takeProfit?.toFixed(2)}</td>
               <td className={`${TD_CLASS} text-secondary text-[11px]`}>
-                {new Date(p.openTime).toLocaleString('th-TH')}
+                {new Date(p.openTime).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}
               </td>
             </tr>
           ))}

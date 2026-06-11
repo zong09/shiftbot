@@ -122,7 +122,7 @@ export default function App() {
         <div className="flex items-center gap-3">
           {lastFetch && (
             <div className="text-[11px] text-secondary/80 text-right tabular-nums">
-              <div>อัพเดตล่าสุด: {lastFetch.toLocaleTimeString('th-TH')}</div>
+              <div>อัพเดตล่าสุด: {lastFetch.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</div>
               <div>refresh ใน {countdown}s</div>
             </div>
           )}

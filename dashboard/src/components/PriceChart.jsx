@@ -6,7 +6,8 @@ import { zoneByNumber } from '../theme.js';
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
 function snapToNearestCandle(openTimeMs, series) {
-  const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000);
+  const offsetSec = -new Date().getTimezoneOffset() * 60;
+  const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000) + offsetSec;
   return series.reduce((nearest, candle) =>
     Math.abs(candle.time - targetSec) < Math.abs(nearest.time - targetSec) ? candle : nearest
   );
@@ -78,6 +79,13 @@ export default function PriceChart({
         timeVisible:    true,
         secondsVisible: false,
         barSpacing:     8,
+      },
+      localization: {
+        timeFormatter: (timestamp) => {
+          return new Date(timestamp * 1000).toLocaleString('th-TH', {
+            timeZone: 'UTC',
+          });
+        },
       },
     });
 
@@ -187,10 +195,11 @@ export default function PriceChart({
   useEffect(() => {
     if (!candleRef.current || !candles.length) return;
 
-    const indMap = new Map(indicators.map(d => [Math.floor(d.timestamp / 1000), d]));
+    const offsetSec = -new Date().getTimezoneOffset() * 60;
+    const indMap = new Map(indicators.map(d => [Math.floor(d.timestamp / 1000) + offsetSec, d]));
 
     const series = candles.map(c => {
-      const timeSec = Math.floor(c.timestamp / 1000);
+      const timeSec = Math.floor(c.timestamp / 1000) + offsetSec;
       const ind     = indMap.get(timeSec);
       const isUp    = c.close >= c.open;
       if (ind) {
@@ -211,7 +220,7 @@ export default function PriceChart({
 
     if (volumeRef.current) {
       volumeRef.current.setData(candles.map(c => ({
-        time:  Math.floor(c.timestamp / 1000),
+        time:  Math.floor(c.timestamp / 1000) + offsetSec,
         value: c.volume ?? 0,
         color: c.close >= c.open ? colors.chart.volBull : colors.chart.volBear,
       })));
@@ -220,7 +229,7 @@ export default function PriceChart({
     const cdcMarkers = indicators
       .filter(d => d.signal === 'BUY' || d.signal === 'SELL')
       .map(d => ({
-        time:     Math.floor(d.timestamp / 1000),
+        time:     Math.floor(d.timestamp / 1000) + offsetSec,
         position: d.signal === 'BUY' ? 'belowBar' : 'aboveBar',
         color:    d.signal === 'BUY' ? colors.bull : colors.bear,
         shape:    d.signal === 'BUY' ? 'arrowUp'   : 'arrowDown',
@@ -265,8 +274,9 @@ export default function PriceChart({
 
   useEffect(() => {
     if (!ema12Ref.current || !ema26Ref.current || !indicators.length) return;
-    ema12Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000), value: d.emaFast })));
-    ema26Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000), value: d.emaSlow })));
+    const offsetSec = -new Date().getTimezoneOffset() * 60;
+    ema12Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaFast })));
+    ema26Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaSlow })));
   }, [indicators]);
 
   const lastInd     = indicators[indicators.length - 1];
