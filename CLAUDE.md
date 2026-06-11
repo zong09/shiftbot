@@ -35,9 +35,10 @@ The project has two parts in the same folder:
 ```
 [Binance Futures OHLCV]  ← exchangePublic (no auth — public endpoint)
         ↓  MarketDataService.fetchOHLCVByTimeframe()
+        ↓  StrategyService drops the still-forming candle (TIMEFRAME_MS filter)
 [CdcActionZoneService.calculate()]   ← EMA periods from DB settings per mode
         ↓
-[StrategyService] @Cron("0 * * * *") ← hardcoded 1h; see cron table below
+[StrategyService] dynamic cron per mode/symbol ← fires at candle open; see cron table below
         ↓ BUY/SELL/HOLD
 [TradingService]                     ← openLong / closeLong / checkSLTP
         ↓                              uses exchangeLive (live) or exchangeDemo (sandbox)
@@ -85,11 +86,13 @@ Zone is determined by 4 booleans:
 Zones 1–4 = bullish, Zones 5–8 = bearish.  
 **BUY** when zone transitions bearish→bullish, **SELL** when bullish→bearish.
 
+**Confirm-on-close**: `StrategyService.runForPair()` filters out candles whose close time hasn't passed (`timestamp + TIMEFRAME_MS > now`) before calling `calculate()` — signals are evaluated on closed candles only. The chart (`calculateHistory`) still receives the live candle.
+
 Methods accept optional `emaFastOverride` / `emaSlowOverride` — StrategyService passes per-mode values from DB.
 
 ### Cron schedule
 
-`StrategyService` creates **two dynamic cron jobs** at startup (one per mode) using `SchedulerRegistry`. Changing `timeframe` via `PUT /api/settings/:mode` automatically reschedules that mode's job — no restart required.
+`StrategyService` creates **one dynamic cron job per mode/symbol pair** at startup using `SchedulerRegistry`. Changing `timeframe` via `PUT /api/settings/:mode` automatically reschedules that pair's job — no restart required. Jobs fire at candle open and evaluate the last **closed** candle (see Confirm-on-close above).
 
 | Timeframe | Cron            |
 |-----------|-----------------|

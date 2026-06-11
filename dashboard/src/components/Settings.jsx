@@ -2,29 +2,20 @@ import React, { useState, useEffect } from 'react';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
-const FIELD_STYLE = {
-  width: '100%',
-  background: '#0f1117',
-  border: '1px solid #334155',
-  borderRadius: 6,
-  color: '#e2e8f0',
-  padding: '8px 10px',
-  fontSize: 13,
-  boxSizing: 'border-box',
-};
+const FIELD_CLASS =
+  'w-full bg-surface-alt border border-border rounded-md px-2.5 py-2 text-[13px] text-primary ' +
+  'focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-colors duration-150';
 
-const LABEL_STYLE = {
-  display: 'block',
-  fontSize: 12,
-  color: '#94a3b8',
-  marginBottom: 4,
-  fontWeight: 600,
+const STATUS_CLASS = {
+  on:    'bg-bull/10 text-bull',
+  pause: 'bg-warn/10 text-warn',
+  off:   'bg-bear/10 text-bear',
 };
 
 function Field({ label, children }) {
   return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={LABEL_STYLE}>{label}</label>
+    <div className="mb-3.5">
+      <label className="block text-xs font-medium text-secondary mb-1">{label}</label>
       {children}
     </div>
   );
@@ -63,73 +54,81 @@ function PairForm({ pair, mode, onSave, onRemove }) {
     }
   };
 
-  const statusColor = { on: '#22c55e', pause: '#f59e0b', off: '#ef4444' }[pair.status] ?? '#94a3b8';
-
   return (
-    <div style={{ background: '#131929', borderRadius: 10, marginBottom: 10, overflow: 'hidden', border: '1px solid #1e2a3a' }}>
+    <div className="bg-surface-alt border border-border rounded-lg mb-2.5 overflow-hidden">
       {/* Header row */}
       <div
         onClick={() => setOpen(o => !o)}
-        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', cursor: 'pointer' }}
+        className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-surface transition-colors duration-150"
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>{pair.symbol.replace(':USDT', '')}</span>
-          <span style={{ fontSize: 11, color: statusColor, background: statusColor + '22', borderRadius: 5, padding: '2px 8px' }}>
+        <div className="flex items-center gap-2.5">
+          <span className="text-[13px] font-semibold">{pair.symbol.replace(':USDT', '')}</span>
+          <span className={`text-[11px] rounded px-2 py-0.5 ${STATUS_CLASS[pair.status] ?? 'bg-surface text-secondary'}`}>
             {pair.status ?? 'on'}
           </span>
-          <span style={{ fontSize: 11, color: '#64748b' }}>{pair.timeframe}</span>
+          <span className="text-[11px] text-secondary">{pair.timeframe}</span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="flex items-center gap-2">
           <button
             onClick={(e) => { e.stopPropagation(); if (window.confirm(`ลบ ${pair.symbol.replace(':USDT', '')}?`)) onRemove(mode, pair.symbol); }}
-            style={{ padding: '3px 10px', borderRadius: 5, border: 'none', cursor: 'pointer', fontSize: 12, background: '#450a0a', color: '#f87171' }}
+            className="rounded-md border border-bear/40 text-bear hover:bg-bear/10 px-2.5 py-1 text-xs cursor-pointer transition-colors duration-150"
           >
             ลบ
           </button>
-          <span style={{ color: '#475569', fontSize: 14 }}>{open ? '▲' : '▼'}</span>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className={`text-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </div>
       </div>
 
       {/* Expandable settings */}
       {open && form && (
-        <div style={{ padding: '0 16px 16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0 20px' }}>
+        <div className="px-4 pb-4">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-x-5">
             <Field label="Timeframe">
-              <select style={FIELD_STYLE} value={form.timeframe} onChange={e => set('timeframe', e.target.value)}>
+              <select className={FIELD_CLASS} value={form.timeframe} onChange={e => set('timeframe', e.target.value)}>
                 {TIMEFRAMES.map(tf => <option key={tf} value={tf}>{tf}</option>)}
               </select>
             </Field>
             <Field label="Leverage (x)">
-              <input type="number" min={1} max={125} style={FIELD_STYLE} value={form.leverage} onChange={e => set('leverage', Number(e.target.value))} />
+              <input type="number" min={1} max={125} className={FIELD_CLASS} value={form.leverage} onChange={e => set('leverage', Number(e.target.value))} />
             </Field>
             <Field label="Order Size (USDT)">
-              <input type="number" min={1} style={FIELD_STYLE} value={form.orderSizeUsdt} onChange={e => set('orderSizeUsdt', Number(e.target.value))} />
+              <input type="number" min={1} className={FIELD_CLASS} value={form.orderSizeUsdt} onChange={e => set('orderSizeUsdt', Number(e.target.value))} />
             </Field>
             <Field label="Max Positions">
-              <input type="number" min={1} max={10} style={FIELD_STYLE} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
+              <input type="number" min={1} max={10} className={FIELD_CLASS} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
             </Field>
             <Field label="Stop Loss %">
-              <input type="number" min={0} step={0.1} style={FIELD_STYLE} value={form.stopLossPct} onChange={e => set('stopLossPct', parseFloat(e.target.value))} />
+              <input type="number" min={0} step={0.1} className={FIELD_CLASS} value={form.stopLossPct} onChange={e => set('stopLossPct', parseFloat(e.target.value))} />
             </Field>
             <Field label="Take Profit %">
-              <input type="number" min={0} step={0.1} style={FIELD_STYLE} value={form.takeProfitPct} onChange={e => set('takeProfitPct', parseFloat(e.target.value))} />
+              <input type="number" min={0} step={0.1} className={FIELD_CLASS} value={form.takeProfitPct} onChange={e => set('takeProfitPct', parseFloat(e.target.value))} />
             </Field>
             <Field label="EMA Fast">
-              <input type="number" min={1} style={FIELD_STYLE} value={form.emaFast} onChange={e => set('emaFast', Number(e.target.value))} />
+              <input type="number" min={1} className={FIELD_CLASS} value={form.emaFast} onChange={e => set('emaFast', Number(e.target.value))} />
             </Field>
             <Field label="EMA Slow">
-              <input type="number" min={1} style={FIELD_STYLE} value={form.emaSlow} onChange={e => set('emaSlow', Number(e.target.value))} />
+              <input type="number" min={1} className={FIELD_CLASS} value={form.emaSlow} onChange={e => set('emaSlow', Number(e.target.value))} />
             </Field>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+          <div className="flex items-center gap-3 mt-1">
             <button
               onClick={handleSave}
               disabled={saving}
-              style={{ background: saving ? '#334155' : '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 20px', cursor: saving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}
+              className="bg-accent text-white rounded-lg px-5 py-2 text-[13px] font-semibold cursor-pointer hover:opacity-90 transition-opacity duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? 'กำลังบันทึก...' : 'บันทึก'}
             </button>
-            {msg && <span style={{ fontSize: 13, color: msg.type === 'ok' ? '#86efac' : '#fca5a5' }}>{msg.text}</span>}
+            {msg && (
+              <span className={`text-[13px] ${msg.type === 'ok' ? 'text-bull' : 'text-bear'}`}>
+                {msg.text}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -159,23 +158,27 @@ function AddPairRow({ mode, onAdd }) {
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+    <div className="flex items-center gap-2 mt-3">
       <input
         type="text"
         placeholder="เช่น ETH/USDT"
         value={symbol}
         onChange={e => setSymbol(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && handleAdd()}
-        style={{ ...FIELD_STYLE, width: 220 }}
+        className="w-[220px] bg-surface-alt border border-border rounded-md px-2.5 py-2 text-[13px] text-primary focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none transition-colors duration-150"
       />
       <button
         onClick={handleAdd}
         disabled={adding || !symbol.trim()}
-        style={{ background: '#22c55e', color: '#000', border: 'none', borderRadius: 7, padding: '8px 16px', cursor: adding ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700 }}
+        className="bg-accent text-white rounded-lg px-4 py-2 text-[13px] font-semibold cursor-pointer hover:opacity-90 transition-opacity duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {adding ? '...' : '+ เพิ่ม Pair'}
       </button>
-      {msg && <span style={{ fontSize: 13, color: msg.type === 'ok' ? '#86efac' : '#fca5a5' }}>{msg.text}</span>}
+      {msg && (
+        <span className={`text-[13px] ${msg.type === 'ok' ? 'text-bull' : 'text-bear'}`}>
+          {msg.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -189,29 +192,24 @@ export default function Settings({ settings, activeMode, onModeChange, onSave, o
 
   const pairs = Array.isArray(settings?.[tab]) ? settings[tab] : [];
 
-  const tabStyle = (active) => ({
-    padding: '6px 18px',
-    borderRadius: 7, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-    background: active ? '#3b82f6' : 'transparent',
-    color: active ? '#fff' : '#64748b',
-    transition: 'background 0.15s',
-  });
+  const tabClass = (active) =>
+    `px-4 py-1.5 rounded-md text-[13px] font-semibold cursor-pointer transition-colors duration-150 ${
+      active ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'
+    }`;
 
   return (
-    <div style={{ background: '#1e2536', borderRadius: 12, padding: 24, marginBottom: 20 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e2e8f0', marginBottom: 16, marginTop: 0 }}>
-        Trading Settings
-      </h2>
+    <div className="bg-surface border border-border rounded-lg p-6 mb-5">
+      <h2 className="text-base font-semibold mb-4">Trading Settings</h2>
 
       {/* Mode tabs */}
-      <div style={{ display: 'flex', gap: 4, background: '#0f1117', borderRadius: 9, padding: 4, width: 'fit-content', marginBottom: 20 }}>
-        <button style={tabStyle(tab === 'live')} onClick={() => { setTab('live'); onModeChange?.('live'); }}>Live</button>
-        <button style={tabStyle(tab === 'sandbox')} onClick={() => { setTab('sandbox'); onModeChange?.('sandbox'); }}>Sandbox</button>
+      <div className="inline-flex items-center gap-1 bg-surface-alt rounded-lg p-1 mb-5">
+        <button className={tabClass(tab === 'live')} onClick={() => { setTab('live'); onModeChange?.('live'); }}>Live</button>
+        <button className={tabClass(tab === 'sandbox')} onClick={() => { setTab('sandbox'); onModeChange?.('sandbox'); }}>Sandbox</button>
       </div>
 
       {/* Pair list */}
       {pairs.length === 0 ? (
-        <div style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>ยังไม่มี pair — เพิ่มด้านล่าง</div>
+        <div className="text-secondary text-[13px] mb-3">ยังไม่มี pair — เพิ่มด้านล่าง</div>
       ) : (
         pairs.map(p => (
           <PairForm

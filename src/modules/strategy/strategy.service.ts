@@ -23,6 +23,15 @@ const TIMEFRAME_CRON: Record<string, string> = {
   '1d':  '0 0 * * *',
 };
 
+const TIMEFRAME_MS: Record<string, number> = {
+  '1m':  60_000,
+  '5m':  300_000,
+  '15m': 900_000,
+  '1h':  3_600_000,
+  '4h':  14_400_000,
+  '1d':  86_400_000,
+};
+
 function timeframeToCron(timeframe: string): string {
   return TIMEFRAME_CRON[timeframe] ?? '0 * * * *';
 }
@@ -125,7 +134,11 @@ export class StrategyService implements OnModuleInit {
         return;
       }
 
-      const result = this.cdcService.calculate(candles, ctx.lastZone, s.emaFast, s.emaSlow);
+      // ใช้เฉพาะแท่งที่ปิดแล้ว — แท่งสุดท้ายจาก Binance คือแท่ง live ที่ยังไม่ confirm
+      const tfMs = TIMEFRAME_MS[s.timeframe] ?? 3_600_000;
+      const confirmed = candles.filter((c) => c.timestamp + tfMs <= Date.now());
+
+      const result = this.cdcService.calculate(confirmed, ctx.lastZone, s.emaFast, s.emaSlow);
       if (!result) return;
 
       ctx.lastResult = result;

@@ -1,24 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CrosshairMode } from 'lightweight-charts';
+import { useTheme } from '../ThemeContext.jsx';
+import { zoneByNumber } from '../theme.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
-
-const UP_COLOR   = '#0ECB81';
-const DOWN_COLOR = '#F6465D';
-const BG_COLOR   = '#161A1E';
-const GRID_COLOR = '#1E2329';
-const TEXT_COLOR = '#848E9C';
-
-const ZONE_COLORS = {
-  1: { up: '#0ECB81', down: '#06a659' },
-  2: { up: '#00b894', down: '#009174' },
-  3: { up: '#26d9b0', down: '#1aaa87' },
-  4: { up: '#2ecc71', down: '#27ae60' },
-  5: { up: '#f39c12', down: '#d68910' },
-  6: { up: '#e67e22', down: '#ca6f1e' },
-  7: { up: '#F6465D', down: '#d63031' },
-  8: { up: '#c0392b', down: '#a93226' },
-};
 
 function snapToNearestCandle(openTimeMs, series) {
   const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000);
@@ -47,6 +32,7 @@ export default function PriceChart({
   chartTimeframe = '1h',
   onTimeframeChange,
 }) {
+  const { colors } = useTheme();
   const containerRef  = useRef(null);
   const chartRef      = useRef(null);
   const candleRef     = useRef(null);
@@ -55,36 +41,40 @@ export default function PriceChart({
   const ema26Ref      = useRef(null);
   const priceLineRefs = useRef([]);
   const seriesData    = useRef([]);
+  const colorsRef     = useRef(colors);
+  const dataKeyRef    = useRef('');
+  colorsRef.current = colors;
 
   const [hover, setHover] = useState(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const c = colorsRef.current;
 
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
       height: 460,
       layout: {
-        background: { color: BG_COLOR },
-        textColor:  TEXT_COLOR,
-        fontFamily: "'Inter', 'Segoe UI', sans-serif",
+        background: { color: c.surface },
+        textColor:  c.textSecondary,
+        fontFamily: "'Inter Variable', 'Segoe UI', sans-serif",
         fontSize:   11,
       },
       grid: {
-        vertLines: { color: GRID_COLOR },
-        horzLines: { color: GRID_COLOR },
+        vertLines: { color: c.chart.grid },
+        horzLines: { color: c.chart.grid },
       },
       crosshair: {
         mode:     CrosshairMode.Normal,
-        vertLine: { color: '#4a5568', labelBackgroundColor: '#2d3748' },
-        horzLine: { color: '#4a5568', labelBackgroundColor: '#2d3748' },
+        vertLine: { color: c.chart.crosshair, labelBackgroundColor: c.chart.crosshairLabel },
+        horzLine: { color: c.chart.crosshair, labelBackgroundColor: c.chart.crosshairLabel },
       },
       rightPriceScale: {
-        borderColor:  GRID_COLOR,
+        borderColor:  c.chart.grid,
         scaleMargins: { top: 0.05, bottom: 0.2 },
       },
       timeScale: {
-        borderColor:    GRID_COLOR,
+        borderColor:    c.chart.grid,
         timeVisible:    true,
         secondsVisible: false,
         barSpacing:     8,
@@ -92,14 +82,14 @@ export default function PriceChart({
     });
 
     candleRef.current = chart.addCandlestickSeries({
-      upColor:          UP_COLOR,
-      downColor:        DOWN_COLOR,
-      borderUpColor:    UP_COLOR,
-      borderDownColor:  DOWN_COLOR,
-      wickUpColor:      UP_COLOR,
-      wickDownColor:    DOWN_COLOR,
+      upColor:          c.bull,
+      downColor:        c.bear,
+      borderUpColor:    c.bull,
+      borderDownColor:  c.bear,
+      wickUpColor:      c.bull,
+      wickDownColor:    c.bear,
       priceLineVisible: true,
-      priceLineColor:   '#4a5568',
+      priceLineColor:   c.chart.crosshair,
     });
 
     volumeRef.current = chart.addHistogramSeries({
@@ -111,7 +101,7 @@ export default function PriceChart({
     });
 
     ema12Ref.current = chart.addLineSeries({
-      color:            '#F5AC37',
+      color:            c.chart.emaFast,
       lineWidth:        1,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -119,7 +109,7 @@ export default function PriceChart({
     });
 
     ema26Ref.current = chart.addLineSeries({
-      color:            '#C084FC',
+      color:            c.chart.emaSlow,
       lineWidth:        1,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -162,6 +152,38 @@ export default function PriceChart({
     };
   }, []);
 
+  // re-skin the existing chart on theme change (applyOptions preserves zoom/pan)
+  useEffect(() => {
+    if (!chartRef.current) return;
+    chartRef.current.applyOptions({
+      layout: {
+        background: { color: colors.surface },
+        textColor:  colors.textSecondary,
+      },
+      grid: {
+        vertLines: { color: colors.chart.grid },
+        horzLines: { color: colors.chart.grid },
+      },
+      crosshair: {
+        vertLine: { color: colors.chart.crosshair, labelBackgroundColor: colors.chart.crosshairLabel },
+        horzLine: { color: colors.chart.crosshair, labelBackgroundColor: colors.chart.crosshairLabel },
+      },
+      rightPriceScale: { borderColor: colors.chart.grid },
+      timeScale:       { borderColor: colors.chart.grid },
+    });
+    candleRef.current?.applyOptions({
+      upColor:         colors.bull,
+      downColor:       colors.bear,
+      borderUpColor:   colors.bull,
+      borderDownColor: colors.bear,
+      wickUpColor:     colors.bull,
+      wickDownColor:   colors.bear,
+      priceLineColor:  colors.chart.crosshair,
+    });
+    ema12Ref.current?.applyOptions({ color: colors.chart.emaFast });
+    ema26Ref.current?.applyOptions({ color: colors.chart.emaSlow });
+  }, [colors]);
+
   useEffect(() => {
     if (!candleRef.current || !candles.length) return;
 
@@ -172,7 +194,7 @@ export default function PriceChart({
       const ind     = indMap.get(timeSec);
       const isUp    = c.close >= c.open;
       if (ind) {
-        const zc = ZONE_COLORS[ind.zone];
+        const zc = zoneByNumber(ind.zone);
         if (zc) {
           const col = isUp ? zc.up : zc.down;
           return {
@@ -191,9 +213,7 @@ export default function PriceChart({
       volumeRef.current.setData(candles.map(c => ({
         time:  Math.floor(c.timestamp / 1000),
         value: c.volume ?? 0,
-        color: c.close >= c.open
-          ? 'rgba(14,203,129,0.35)'
-          : 'rgba(246,70,93,0.35)',
+        color: c.close >= c.open ? colors.chart.volBull : colors.chart.volBear,
       })));
     }
 
@@ -202,8 +222,8 @@ export default function PriceChart({
       .map(d => ({
         time:     Math.floor(d.timestamp / 1000),
         position: d.signal === 'BUY' ? 'belowBar' : 'aboveBar',
-        color:    d.signal === 'BUY' ? UP_COLOR   : DOWN_COLOR,
-        shape:    d.signal === 'BUY' ? 'arrowUp'  : 'arrowDown',
+        color:    d.signal === 'BUY' ? colors.bull : colors.bear,
+        shape:    d.signal === 'BUY' ? 'arrowUp'   : 'arrowDown',
         text:     d.signal,
         size:     1,
       }));
@@ -215,8 +235,8 @@ export default function PriceChart({
         return {
           time:     nearest.time,
           position: p.side === 'long' ? 'belowBar' : 'aboveBar',
-          color:    p.side === 'long' ? UP_COLOR   : DOWN_COLOR,
-          shape:    p.side === 'long' ? 'arrowUp'  : 'arrowDown',
+          color:    p.side === 'long' ? colors.bull : colors.bear,
+          shape:    p.side === 'long' ? 'arrowUp'   : 'arrowDown',
           text:     `${p.side === 'long' ? 'L' : 'S'} @${Number(p.entryPrice).toLocaleString()}`,
           size:     2,
         };
@@ -228,15 +248,20 @@ export default function PriceChart({
     priceLineRefs.current = [];
     positions.forEach(p => {
       if (p.stopLoss) priceLineRefs.current.push(candleRef.current.createPriceLine({
-        price: p.stopLoss, color: DOWN_COLOR, lineWidth: 1, lineStyle: 2, title: 'SL',
+        price: p.stopLoss, color: colors.bear, lineWidth: 1, lineStyle: 2, title: 'SL',
       }));
       if (p.takeProfit) priceLineRefs.current.push(candleRef.current.createPriceLine({
-        price: p.takeProfit, color: UP_COLOR, lineWidth: 1, lineStyle: 2, title: 'TP',
+        price: p.takeProfit, color: colors.bull, lineWidth: 1, lineStyle: 2, title: 'TP',
       }));
     });
 
-    chartRef.current.timeScale().fitContent();
-  }, [candles, indicators, positions]);
+    // only fit when the underlying data changed — a theme-only re-run must not reset zoom/pan
+    const dataKey = `${candles.length}:${candles[0]?.timestamp}:${candles[candles.length - 1]?.timestamp}`;
+    if (dataKeyRef.current !== dataKey) {
+      dataKeyRef.current = dataKey;
+      chartRef.current.timeScale().fitContent();
+    }
+  }, [candles, indicators, positions, colors]);
 
   useEffect(() => {
     if (!ema12Ref.current || !ema26Ref.current || !indicators.length) return;
@@ -254,113 +279,91 @@ export default function PriceChart({
     volume: lastCandle.volume,
     isUp:   lastCandle.close >= lastCandle.open,
   } : null);
-  const ohlcColor = displayData?.isUp ? UP_COLOR : DOWN_COLOR;
+  const ohlcClass  = displayData?.isUp ? 'text-bull' : 'text-bear';
+  const zoneColor  = zoneByNumber(lastInd?.zone)?.color;
 
   return (
-    <div style={{ background: BG_COLOR, borderRadius: 4, marginBottom: 8, overflow: 'hidden' }}>
+    <div className="bg-surface border border-border rounded-lg mb-4 overflow-hidden">
 
       {/* Toolbar */}
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        borderBottom: `1px solid ${GRID_COLOR}`,
-        padding: '0 12px', height: 36,
-      }}>
+      <div className="flex items-center h-9 px-3 border-b border-border">
         {symbol && (
-          <span style={{
-            fontSize: 13, fontWeight: 700, color: '#EAECEF',
-            paddingRight: 12, marginRight: 4,
-            borderRight: `1px solid ${GRID_COLOR}`,
-          }}>
+          <span className="text-[13px] font-semibold pr-3 mr-1 border-r border-border">
             {symbol.replace(':USDT', '')}
           </span>
         )}
-        <div style={{ display: 'flex', paddingLeft: symbol ? 8 : 0 }}>
+        <div className={`flex ${symbol ? 'pl-2' : ''}`}>
           {TIMEFRAMES.map(tf => (
             <button
               key={tf}
               onClick={() => onTimeframeChange?.(tf)}
-              style={{
-                padding:      '0 10px',
-                height:       36,
-                border:       'none',
-                cursor:       'pointer',
-                fontSize:     12,
-                fontWeight:   chartTimeframe === tf ? 700 : 400,
-                background:   'transparent',
-                color:        chartTimeframe === tf ? '#F0B90B' : TEXT_COLOR,
-                borderBottom: chartTimeframe === tf ? '2px solid #F0B90B' : '2px solid transparent',
-              }}
+              className={`h-9 px-2.5 text-xs cursor-pointer border-b-2 transition-colors duration-150 ${
+                chartTimeframe === tf
+                  ? 'font-bold text-accent border-accent'
+                  : 'font-normal text-secondary border-transparent hover:text-primary'
+              }`}
             >
               {tf.toUpperCase()}
             </button>
           ))}
         </div>
-        <div style={{ flex: 1 }} />
+        <div className="flex-1" />
         {lastInd && (
-          <span style={{
-            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 3,
-            background: (lastInd.zoneColor ?? '#334155') + '33',
-            color:      lastInd.zoneColor ?? '#94a3b8',
-            border:     `1px solid ${(lastInd.zoneColor ?? '#334155')}55`,
-          }}>
+          <span
+            className="text-[11px] font-semibold px-2 py-0.5 rounded border"
+            style={zoneColor
+              ? { color: zoneColor, background: zoneColor + '22', borderColor: zoneColor + '55' }
+              : undefined}
+          >
             Zone {lastInd.zone}
           </span>
         )}
       </div>
 
       {/* OHLCV info */}
-      <div style={{
-        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
-        padding: '3px 12px',
-        fontSize: 11,
-        borderBottom: `1px solid ${GRID_COLOR}`,
-        minHeight: 24,
-      }}>
+      <div className="flex flex-wrap items-center gap-2.5 px-3 py-1 min-h-6 text-[11px] tabular-nums border-b border-border">
         {displayData ? (
           <>
-            <span style={{ color: TEXT_COLOR }}>O&nbsp;<b style={{ color: ohlcColor }}>{formatPrice(displayData.open)}</b></span>
-            <span style={{ color: TEXT_COLOR }}>H&nbsp;<b style={{ color: ohlcColor }}>{formatPrice(displayData.high)}</b></span>
-            <span style={{ color: TEXT_COLOR }}>L&nbsp;<b style={{ color: ohlcColor }}>{formatPrice(displayData.low)}</b></span>
-            <span style={{ color: TEXT_COLOR }}>C&nbsp;<b style={{ color: ohlcColor }}>{formatPrice(displayData.close)}</b></span>
+            <span className="text-secondary">O&nbsp;<b className={ohlcClass}>{formatPrice(displayData.open)}</b></span>
+            <span className="text-secondary">H&nbsp;<b className={ohlcClass}>{formatPrice(displayData.high)}</b></span>
+            <span className="text-secondary">L&nbsp;<b className={ohlcClass}>{formatPrice(displayData.low)}</b></span>
+            <span className="text-secondary">C&nbsp;<b className={ohlcClass}>{formatPrice(displayData.close)}</b></span>
             {displayData.volume != null && (
-              <span style={{ color: TEXT_COLOR }}>Vol&nbsp;<b style={{ color: '#EAECEF' }}>{formatVolume(displayData.volume)}</b></span>
+              <span className="text-secondary">Vol&nbsp;<b className="text-primary">{formatVolume(displayData.volume)}</b></span>
             )}
             {lastInd && (
               <>
-                <span style={{ color: '#F5AC37' }}>MA12&nbsp;{formatPrice(lastInd.emaFast)}</span>
-                <span style={{ color: '#C084FC' }}>MA26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
+                <span style={{ color: colors.chart.emaFast }}>MA12&nbsp;{formatPrice(lastInd.emaFast)}</span>
+                <span style={{ color: colors.chart.emaSlow }}>MA26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
               </>
             )}
           </>
         ) : (
-          <span style={{ color: '#4a5568' }}>—</span>
+          <span className="text-secondary/60">—</span>
         )}
       </div>
 
       {/* Chart canvas */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         {candles.length === 0 && (
-          <div style={{
-            height: 460, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#4a5568', fontSize: 12, position: 'absolute', inset: 0, zIndex: 1,
-          }}>
+          <div className="absolute inset-0 z-10 flex h-[460px] items-center justify-center text-xs text-secondary/70">
             Loading candles…
           </div>
         )}
-        <div ref={containerRef} style={{ width: '100%', visibility: candles.length === 0 ? 'hidden' : 'visible' }} />
+        <div ref={containerRef} className={`w-full ${candles.length === 0 ? 'invisible' : 'visible'}`} />
       </div>
 
       {/* Open positions */}
       {positions.length > 0 && (
-        <div style={{ borderTop: `1px solid ${GRID_COLOR}`, padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div className="flex flex-col gap-1.5 border-t border-border px-3 py-2">
           {positions.map((p, i) => (
-            <div key={p.id ?? i} style={{ display: 'flex', gap: 20, fontSize: 11, alignItems: 'center' }}>
-              <span style={{ color: p.side === 'long' ? UP_COLOR : DOWN_COLOR, fontWeight: 700, fontSize: 12, minWidth: 44 }}>
+            <div key={p.id ?? i} className="flex items-center gap-5 text-[11px] tabular-nums">
+              <span className={`min-w-11 text-xs font-bold ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}>
                 {p.side === 'long' ? 'LONG' : 'SHORT'}
               </span>
-              <span style={{ color: TEXT_COLOR }}>Entry&nbsp;<b style={{ color: '#EAECEF' }}>{formatPrice(p.entryPrice)}</b></span>
-              <span style={{ color: TEXT_COLOR }}>SL&nbsp;<b style={{ color: DOWN_COLOR }}>{Number(p.stopLoss).toFixed(2)}</b></span>
-              <span style={{ color: TEXT_COLOR }}>TP&nbsp;<b style={{ color: UP_COLOR }}>{Number(p.takeProfit).toFixed(2)}</b></span>
+              <span className="text-secondary">Entry&nbsp;<b className="text-primary">{formatPrice(p.entryPrice)}</b></span>
+              <span className="text-secondary">SL&nbsp;<b className="text-bear">{Number(p.stopLoss).toFixed(2)}</b></span>
+              <span className="text-secondary">TP&nbsp;<b className="text-bull">{Number(p.takeProfit).toFixed(2)}</b></span>
             </div>
           ))}
         </div>

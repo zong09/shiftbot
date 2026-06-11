@@ -4,23 +4,44 @@ import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import PriceChart   from './components/PriceChart.jsx';
 import Settings      from './components/Settings.jsx';
+import { useTheme } from './ThemeContext.jsx';
 import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair } from './api.js';
 
 const REFRESH_INTERVAL = 30_000;
 
-const TAB_STYLE = (active) => ({
-  padding: '7px 20px',
-  borderRadius: 8,
-  border: 'none',
-  cursor: 'pointer',
-  fontSize: 13,
-  fontWeight: 700,
-  background: active ? '#3b82f6' : 'transparent',
-  color: active ? '#fff' : '#64748b',
-  transition: 'background 0.15s',
-});
+function SunIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
+
+const tabClass = (active) =>
+  `px-5 py-1.5 rounded-md text-[13px] font-semibold cursor-pointer transition-colors duration-150 ${
+    active ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'
+  }`;
 
 export default function App() {
+  const { theme, toggle } = useTheme();
   const [mode,           setMode]           = useState('live');
   const [status,         setStatus]         = useState(null);
   const [trades,         setTrades]         = useState([]);
@@ -88,21 +109,19 @@ export default function App() {
   const firstPairStatus = settings?.[mode]?.[0]?.status ?? null;
 
   return (
-    <div style={{ minHeight: '100vh', padding: '20px 24px', maxWidth: 1100, margin: '0 auto' }}>
+    <div className="min-h-dvh max-w-[1100px] mx-auto px-6 py-5">
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 800, background: 'linear-gradient(135deg,#22c55e,#3b82f6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            ShiftBot
-          </h1>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+          <h1 className="text-2xl font-semibold tracking-tight">ShiftBot</h1>
+          <div className="text-xs text-secondary mt-0.5">
             Binance Futures · {chartSymbol.replace(':USDT', '')}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           {lastFetch && (
-            <div style={{ fontSize: 11, color: '#475569', textAlign: 'right' }}>
+            <div className="text-[11px] text-secondary/80 text-right tabular-nums">
               <div>อัพเดตล่าสุด: {lastFetch.toLocaleTimeString('th-TH')}</div>
               <div>refresh ใน {countdown}s</div>
             </div>
@@ -110,55 +129,49 @@ export default function App() {
           <button
             onClick={() => loadData(mode, chartTimeframe, chartSymbol)}
             disabled={loading}
-            style={{
-              background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8,
-              padding: '8px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
-            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-[13px] font-medium text-secondary hover:bg-surface-alt hover:text-primary transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? '...' : '🔄 Refresh'}
+            <RefreshIcon />
+            {loading ? '...' : 'Refresh'}
+          </button>
+          <button
+            onClick={toggle}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-border text-secondary hover:bg-surface-alt hover:text-primary transition-colors duration-150 cursor-pointer"
+          >
+            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
         </div>
       </div>
 
       {/* Mode Tabs */}
-      <div style={{
-        display: 'inline-flex', alignItems: 'center',
-        background: '#1e293b', borderRadius: 10, padding: 4,
-        marginBottom: 20,
-      }}>
-        <button style={TAB_STYLE(mode === 'live')} onClick={() => setMode('live')}>
-          🟢 Live
+      <div className="inline-flex items-center bg-surface-alt rounded-lg p-1 mb-5">
+        <button className={tabClass(mode === 'live')} onClick={() => setMode('live')}>
+          Live
         </button>
-        <button style={TAB_STYLE(mode === 'sandbox')} onClick={() => setMode('sandbox')}>
-          🧪 Sandbox
+        <button className={tabClass(mode === 'sandbox')} onClick={() => setMode('sandbox')}>
+          Sandbox
         </button>
-        <span style={{ width: 1, height: 20, background: '#334155', margin: '0 4px', flexShrink: 0 }} />
-        <button style={TAB_STYLE(activeTab === 'chart')} onClick={() => setActiveTab('chart')}>
+        <span className="w-px h-5 bg-border mx-1 shrink-0" />
+        <button className={tabClass(activeTab === 'chart')} onClick={() => setActiveTab('chart')}>
           Chart
         </button>
-        <button style={TAB_STYLE(activeTab === 'settings')} onClick={() => setActiveTab('settings')}>
+        <button className={tabClass(activeTab === 'settings')} onClick={() => setActiveTab('settings')}>
           Settings
         </button>
       </div>
 
       {/* Sandbox Banner */}
       {isSandbox && (
-        <div style={{
-          background: '#1e3a1e', border: '1px solid #166534', borderRadius: 10,
-          padding: '10px 16px', marginBottom: 16,
-          color: '#86efac', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          🧪 <strong>Sandbox Mode</strong> — Paper trading, ไม่มีการส่ง order จริง
+        <div className="border border-bull/30 bg-bull/10 text-bull rounded-lg px-4 py-2.5 mb-4 text-[13px]">
+          <strong>Sandbox Mode</strong> — Paper trading, ไม่มีการส่ง order จริง
         </div>
       )}
 
       {/* Error Banner */}
       {error && (
-        <div style={{
-          background: '#7f1d1d', borderRadius: 10, padding: '14px 18px',
-          marginBottom: 16, color: '#fca5a5', fontSize: 13,
-        }}>
-          ⚠️ {error}
+        <div className="border border-bear/30 bg-bear/10 text-bear rounded-lg px-4 py-3 mb-4 text-[13px]">
+          {error}
         </div>
       )}
 
@@ -200,17 +213,16 @@ export default function App() {
             }}
           />
           {(settings?.[mode]?.length ?? 0) > 1 && (
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <div className="flex flex-wrap gap-2 mb-3">
               {settings[mode].map(p => (
                 <button
                   key={p.symbol}
                   onClick={() => setChartSymbol(p.symbol)}
-                  style={{
-                    padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                    fontSize: 12, fontWeight: 700,
-                    background: chartSymbol === p.symbol ? '#3b82f6' : '#1e293b',
-                    color: chartSymbol === p.symbol ? '#fff' : '#64748b',
-                  }}
+                  className={`rounded-full border px-3.5 py-1 text-xs font-semibold cursor-pointer transition-colors duration-150 ${
+                    chartSymbol === p.symbol
+                      ? 'border-accent text-accent'
+                      : 'border-border text-secondary hover:text-primary hover:bg-surface-alt'
+                  }`}
                 >
                   {p.symbol.replace(':USDT', '')}
                 </button>
@@ -231,8 +243,8 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <div style={{ textAlign: 'center', color: '#334155', fontSize: 11, paddingTop: 12 }}>
-        ⚠️ ทดสอบบน Testnet ก่อนใช้เงินจริงเสมอ
+      <div className="text-center text-secondary/60 text-[11px] pt-3">
+        ทดสอบบน Testnet ก่อนใช้เงินจริงเสมอ
       </div>
     </div>
   );

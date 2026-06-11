@@ -1,38 +1,54 @@
 import React from 'react';
 import ZoneBar from './ZoneBar.jsx';
+import { zoneByNumber } from '../theme.js';
 
-const s = {
-  card:   { background: '#1e2130', borderRadius: 12, padding: 20, marginBottom: 16 },
-  label:  { fontSize: 12, color: '#94a3b8', marginBottom: 4 },
-  value:  { fontSize: 22, fontWeight: 700 },
-  grid:   { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16, marginBottom: 20 },
-  item:   { background: '#262b3d', borderRadius: 8, padding: 14 },
-};
-
-const SIGNAL_COLOR = { BUY: '#22c55e', SELL: '#ef4444', HOLD: '#94a3b8' };
+const SIGNAL_CLASS = { BUY: 'text-bull', SELL: 'text-bear', HOLD: 'text-secondary' };
 
 const STATUS_CFG = {
-  on:    { bg: '#064e3b', color: '#0ECB81', label: 'Running' },
-  pause: { bg: '#78350f', color: '#F59E0B', label: 'Paused'  },
-  off:   { bg: '#450a0a', color: '#F6465D', label: 'Stopped' },
+  on:    { className: 'bg-bull/10 text-bull border-bull/30',  label: 'Running' },
+  pause: { className: 'bg-warn/10 text-warn border-warn/30',  label: 'Paused'  },
+  off:   { className: 'bg-bear/10 text-bear border-bear/30',  label: 'Stopped' },
 };
 
-function CtrlBtn({ label, color, onClick }) {
+const CTRL_CLASS = {
+  bull: 'border-bull/40 text-bull hover:bg-bull/10',
+  warn: 'border-warn/40 text-warn hover:bg-warn/10',
+  bear: 'border-bear/40 text-bear hover:bg-bear/10',
+};
+
+function CtrlBtn({ label, tone, onClick }) {
   return (
-    <button onClick={onClick} style={{
-      padding: '4px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-      fontSize: 12, fontWeight: 700, background: color + '22', color,
-    }}>
+    <button
+      onClick={onClick}
+      className={`rounded-md border px-3 py-1 text-xs font-semibold cursor-pointer transition-colors duration-150 ${CTRL_CLASS[tone]}`}
+    >
       {label}
     </button>
   );
 }
 
+function Tile({ label, children, sub }) {
+  return (
+    <div className="bg-surface-alt border border-border rounded-lg p-3.5">
+      <div className="text-[11px] uppercase tracking-wide text-secondary mb-1">{label}</div>
+      {children}
+      {sub && <div className="text-[11px] text-secondary mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
 export default function StatusCard({ status, botStatus, onStatusChange }) {
-  if (!status) return <div style={s.card}>กำลังโหลด...</div>;
+  if (!status) {
+    return (
+      <div className="bg-surface border border-border rounded-lg p-5 mb-4 text-secondary text-sm">
+        กำลังโหลด...
+      </div>
+    );
+  }
   const cdc = status.lastCDC;
   const pnl = parseFloat(status.totalPnl);
   const cfg = STATUS_CFG[botStatus] ?? null;
+  const zoneColor = zoneByNumber(cdc?.zone)?.color;
 
   const handleStop = () => {
     if (window.confirm('หยุด bot? ระบบจะปิด open positions ทั้งหมดทันที')) {
@@ -41,81 +57,74 @@ export default function StatusCard({ status, botStatus, onStatusChange }) {
   };
 
   return (
-    <div style={s.card}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>🤖 Bot Status</h2>
+    <div className="bg-surface border border-border rounded-lg p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-base font-semibold m-0">Bot Status</h2>
           {cfg ? (
-            <span style={{ fontSize: 13, background: cfg.bg, color: cfg.color, borderRadius: 6, padding: '2px 10px' }}>
+            <span className={`text-xs border rounded-md px-2.5 py-0.5 ${cfg.className}`}>
               {cfg.label}
             </span>
           ) : (
-            <span style={{ fontSize: 13, color: '#475569' }}>…</span>
+            <span className="text-xs text-secondary/60">…</span>
           )}
-          <div style={{ display: 'flex', gap: 6 }}>
-            {botStatus === 'on'    && <><CtrlBtn label="⏸ Pause"  color="#F59E0B" onClick={() => onStatusChange?.('pause')} /><CtrlBtn label="⏹ Stop" color="#F6465D" onClick={handleStop} /></>}
-            {botStatus === 'pause' && <><CtrlBtn label="▶ Resume" color="#0ECB81" onClick={() => onStatusChange?.('on')}    /><CtrlBtn label="⏹ Stop" color="#F6465D" onClick={handleStop} /></>}
-            {botStatus === 'off'   && <CtrlBtn label="▶ Start"   color="#0ECB81" onClick={() => onStatusChange?.('on')} />}
+          <div className="flex gap-1.5">
+            {botStatus === 'on'    && <><CtrlBtn label="Pause"  tone="warn" onClick={() => onStatusChange?.('pause')} /><CtrlBtn label="Stop" tone="bear" onClick={handleStop} /></>}
+            {botStatus === 'pause' && <><CtrlBtn label="Resume" tone="bull" onClick={() => onStatusChange?.('on')}    /><CtrlBtn label="Stop" tone="bear" onClick={handleStop} /></>}
+            {botStatus === 'off'   && <CtrlBtn label="Start"   tone="bull" onClick={() => onStatusChange?.('on')} />}
           </div>
         </div>
-        <div style={{ fontSize: 12, color: '#64748b' }}>
-          {status.symbol} · {status.timeframe}
+        <div className="text-xs text-secondary">
+          {status.symbol?.replace(':USDT', '')} · {status.timeframe}
         </div>
       </div>
 
-      <div style={s.grid}>
-        <div style={s.item}>
-          <div style={s.label}>Signal</div>
-          <div style={{ ...s.value, color: SIGNAL_COLOR[cdc?.signal] ?? '#fff' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+        <Tile label="Signal">
+          <div className={`text-lg font-semibold ${SIGNAL_CLASS[cdc?.signal] ?? 'text-primary'}`}>
             {cdc?.signal ?? '—'}
           </div>
-        </div>
-        <div style={s.item}>
-          <div style={s.label}>CDC Zone</div>
-          <div style={{ ...s.value, color: cdc?.zoneColor ?? '#fff' }}>
+        </Tile>
+        <Tile label="CDC Zone" sub={cdc?.zoneName}>
+          <div className="text-lg font-semibold" style={zoneColor ? { color: zoneColor } : undefined}>
             Zone {cdc?.zone ?? '—'}
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8' }}>{cdc?.zoneName}</div>
-        </div>
-        <div style={s.item}>
-          <div style={s.label}>EMA 12</div>
-          <div style={s.value}>{cdc ? parseFloat(cdc.emaFast).toFixed(2) : '—'}</div>
-        </div>
-        <div style={s.item}>
-          <div style={s.label}>EMA 26</div>
-          <div style={s.value}>{cdc ? parseFloat(cdc.emaSlow).toFixed(2) : '—'}</div>
-        </div>
-        <div style={s.item}>
-          <div style={s.label}>Close Price</div>
-          <div style={s.value}>{cdc?.close?.toLocaleString() ?? '—'}</div>
-        </div>
-        <div style={s.item}>
-          <div style={s.label}>Total PnL</div>
-          <div style={{ ...s.value, color: pnl >= 0 ? '#22c55e' : '#ef4444' }}>
+        </Tile>
+        <Tile label="EMA 12">
+          <div className="text-lg font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaFast).toFixed(2) : '—'}</div>
+        </Tile>
+        <Tile label="EMA 26">
+          <div className="text-lg font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaSlow).toFixed(2) : '—'}</div>
+        </Tile>
+        <Tile label="Close Price">
+          <div className="text-lg font-semibold tabular-nums">{cdc?.close?.toLocaleString() ?? '—'}</div>
+        </Tile>
+        <Tile label="Total PnL">
+          <div className={`text-lg font-semibold tabular-nums ${pnl >= 0 ? 'text-bull' : 'text-bear'}`}>
             {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USDT
           </div>
-        </div>
+        </Tile>
       </div>
 
       {/* Balance row */}
       {status.balance && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 20 }}>
+        <div className="grid grid-cols-3 gap-3 mb-4">
           {[
             { label: 'Balance',   value: status.balance.total },
             { label: 'Available', value: status.balance.free  },
             { label: 'In Use',    value: status.balance.used  },
           ].map(({ label, value }) => (
-            <div key={label} style={s.item}>
-              <div style={s.label}>{label}</div>
-              <div style={{ ...s.value, fontSize: 16 }}>
-                {value > 0 ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'} <span style={{ fontSize: 11, color: '#64748b' }}>USDT</span>
+            <Tile key={label} label={label}>
+              <div className="text-base font-semibold tabular-nums">
+                {value > 0 ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}{' '}
+                <span className="text-[11px] text-secondary font-normal">USDT</span>
               </div>
-            </div>
+            </Tile>
           ))}
         </div>
       )}
 
-      <div style={s.label}>CDC Zone Bar</div>
+      <div className="text-[11px] uppercase tracking-wide text-secondary mb-1.5">CDC Zone Bar</div>
       <ZoneBar currentZone={cdc?.zone} />
     </div>
   );

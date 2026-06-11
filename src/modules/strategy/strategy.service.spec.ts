@@ -123,6 +123,15 @@ describe('StrategyService', () => {
       expect(cdcSvc.calculate).not.toHaveBeenCalled();
     });
 
+    it('excludes the still-forming (unclosed) candle before calculating the signal', async () => {
+      const closed = mockCandles.slice(0, 49);
+      const forming = { timestamp: Date.now(), open: 50_000, high: 50_000, low: 50_000, close: 50_000, volume: 1 };
+      await buildModule(makeCdcResult(), [...closed, forming]);
+      await service.runStrategy();
+      const passedCandles = (cdcSvc.calculate as jest.Mock).mock.calls[0][0];
+      expect(passedCandles).toEqual(closed);
+    });
+
     it('does nothing when cdcService.calculate() returns null', async () => {
       await buildModule(null);
       await service.runStrategy();

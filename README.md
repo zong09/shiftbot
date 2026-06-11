@@ -104,6 +104,8 @@ Both modes run concurrently with separate position/trade history in the database
 **BUY signal**: zone 5–8 → 1–4  
 **SELL signal**: zone 1–4 → 5–8
 
+Signals are confirmed on candle close: the strategy loop drops the still-forming candle and evaluates the zone from the last **closed** candle only.
+
 ---
 
 ## Dashboard API
@@ -122,7 +124,7 @@ Both modes run concurrently with separate position/trade history in the database
 
 ## Timeframe Cron Schedule
 
-`@Cron(...)` in `strategy.service.ts` is hardcoded. Update it manually when changing timeframe in Settings:
+`StrategyService` creates a dynamic cron job per mode/symbol at startup. Changing `timeframe` via the Settings tab (or `PUT /api/settings/:mode`) reschedules the job automatically — no restart required. Each job fires at candle open and evaluates the last **closed** candle:
 
 | Timeframe | Cron Expression |
 |---|---|
