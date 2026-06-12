@@ -19,7 +19,7 @@ export default function TradeHistory({ trades = [] }) {
 
   // สร้าง PnL chart data จาก closed trades
   const pnlData = trades
-    .filter(t => t.pnl !== undefined)
+    .filter(t => t.pnl != null)
     .map((t, i) => ({ name: `#${i + 1}`, pnl: parseFloat(t.pnl.toFixed(2)) }));
 
   return (
@@ -66,7 +66,7 @@ export default function TradeHistory({ trades = [] }) {
             <tr><td colSpan={6} className="text-center text-secondary/70 py-8">ยังไม่มี trade</td></tr>
           ) : [...trades].reverse().map((t, i) => {
             const meta = ACTION_LABEL[t.action] ?? { label: t.action, className: 'text-primary' };
-            const hasPnl = t.pnl !== undefined;
+            const hasPnl = t.pnl != null;
             return (
               <tr key={i} className="hover:bg-surface-alt/60 transition-colors duration-150">
                 <td className={`${TD_CLASS} font-semibold ${meta.className}`}>{meta.label}</td>

@@ -6,6 +6,9 @@ dashboard/node_modules/
 dist/
 dashboard/dist/
 
+# Logs
+logs/
+
 # Environment
 .env
 .env.local
