@@ -74,7 +74,7 @@ export default function App() {
       setLastFetch(new Date());
       setCountdown(REFRESH_INTERVAL / 1000);
     } catch {
-      setError('เชื่อมต่อ API ไม่ได้ — ตรวจสอบว่า Bot กำลังรันอยู่ที่ localhost:3000');
+      setError('เชื่อมต่อ API ไม่ได้ — ตรวจสอบว่า Bot กำลังรันอยู่ที่ localhost:3001');
     } finally {
       setLoading(false);
     }
