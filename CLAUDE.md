@@ -53,7 +53,7 @@ The project has two parts in the same folder:
 | `exchangeLive` | BINANCE_API_KEY | `fapi.binance.com` | Live order execution |
 | `exchangeDemo` | BINANCE_DEMO_API_KEY | `demo-fapi.binance.com` | Demo order execution |
 
-`exchangeDemo` URL is manually patched — **do NOT use `setSandboxMode(true)`** (points to wrong testnet endpoint).
+`exchangeDemo` uses ccxt's **`enableDemoTrading(true)`** — swaps every host (fapi/public/sapi) to `demo-fapi.binance.com`. **do NOT use `setSandboxMode(true)`** (points to deprecated testnet) and **do NOT manually string-replace only the fapi host** — leaving public/sapi on mainnet makes Binance reject the key with `-2008 Invalid Api-Key ID`.
 
 ### Trading settings (PostgreSQL)
 

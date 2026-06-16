@@ -36,24 +36,16 @@ export class MarketDataService implements OnModuleInit {
       secret: demoSecret,
       options: { defaultType: "future" },
     });
-    // Binance Demo Trading uses demo-fapi.binance.com, NOT the testnet
-    // setSandboxMode(true) would point to testnet.binancefuture.com — wrong endpoint
-    const demoUrls = this.exchangeDemo.urls as Record<
-      string,
-      Record<string, string>
-    >;
-    if (demoUrls?.api) {
-      for (const key of Object.keys(demoUrls.api)) {
-        if (typeof demoUrls.api[key] === "string") {
-          demoUrls.api[key] = demoUrls.api[key].replace(
-            "fapi.binance.com",
-            "demo-fapi.binance.com",
-          );
-        }
-      }
-    }
+    // Binance Demo Trading uses demo-fapi.binance.com (urls.demo in ccxt).
+    // Use the official enableDemoTrading(true) — it swaps every host (fapi,
+    // public, sapi) to the demo equivalents. A manual fapi-only string replace
+    // leaves other hosts pointing at mainnet and Binance rejects the key (-2008).
+    // NOTE: do NOT use setSandboxMode(true) — that points to testnet.binancefuture.com (deprecated).
+    this.exchangeDemo.enableDemoTrading(true);
 
-    const endpoint = (demoUrls?.api as any)?.["fapiPrivate"] ?? "(unknown)";
+    const endpoint =
+      (this.exchangeDemo.urls.api as Record<string, string>)?.["fapiPrivate"] ??
+      "(unknown)";
     this.logger.log(`[Demo] endpoint → ${endpoint}`);
 
     this.exchangePublic = new ccxt.binanceusdm({
