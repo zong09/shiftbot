@@ -60,7 +60,12 @@ export class StrategyService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    const modes: TradingMode[] = ['live', 'sandbox'];
+    const modes: TradingMode[] = this.marketDataService.isLiveEnabled()
+      ? ['live', 'sandbox']
+      : ['sandbox'];
+    if (!this.marketDataService.isLiveEnabled()) {
+      this.logger.warn('[Live] ไม่มี API key — schedule เฉพาะ sandbox');
+    }
     const allSettings = (await Promise.all(
       modes.map(m => this.settingsService.seedIfEmpty(m)),
     )).flat();

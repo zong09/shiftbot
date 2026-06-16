@@ -9,14 +9,26 @@ export class MarketDataService implements OnModuleInit {
   private exchangeLive: ccxt.binanceusdm;
   private exchangeDemo: ccxt.binanceusdm;
   private exchangePublic: ccxt.binanceusdm; // no-auth — for OHLCV/ticker (public endpoints)
+  private liveEnabled = false;
 
   constructor(private configService: ConfigService) {}
+
+  /** A key is usable only if present and not a placeholder (.env.example default starts with "your_"). */
+  private isConfigured(key?: string): boolean {
+    return !!key && !key.startsWith("your_");
+  }
+
+  isLiveEnabled(): boolean {
+    return this.liveEnabled;
+  }
 
   async onModuleInit() {
     const liveKey = this.configService.get<string>("binance.apiKey");
     const liveSecret = this.configService.get<string>("binance.apiSecret");
     const demoKey = this.configService.get<string>("binance.demoApiKey");
     const demoSecret = this.configService.get<string>("binance.demoApiSecret");
+
+    this.liveEnabled = this.isConfigured(liveKey);
 
     this.logger.log(
       `[Live] API key loaded: ${liveKey?.substring(0, 8) ?? "(none)"}...`,
@@ -59,11 +71,15 @@ export class MarketDataService implements OnModuleInit {
       this.logger.error("[Public] loadMarkets ไม่ได้: " + err.message);
     }
 
-    try {
-      await this.exchangeLive.loadMarkets();
-      this.logger.log("[Live] เชื่อมต่อ Binance Futures สำเร็จ");
-    } catch (err) {
-      this.logger.error("[Live] เชื่อมต่อ Binance ไม่ได้: " + err.message);
+    if (this.liveEnabled) {
+      try {
+        await this.exchangeLive.loadMarkets();
+        this.logger.log("[Live] เชื่อมต่อ Binance Futures สำเร็จ");
+      } catch (err) {
+        this.logger.error("[Live] เชื่อมต่อ Binance ไม่ได้: " + err.message);
+      }
+    } else {
+      this.logger.warn("[Live] disabled — ไม่มี API key (รันเฉพาะ sandbox)");
     }
   }
 
