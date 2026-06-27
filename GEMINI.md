@@ -112,8 +112,12 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 
 ### Dashboard API endpoints
 
-| Endpoint | Returns |
+> [!IMPORTANT]
+> All `/api/*` endpoints except `/api/auth/login` require authentication. Set `Authorization: Bearer <JWT_TOKEN>` in request headers.
+
+| Endpoint | Returns / Purpose |
 |---|---|
+| `POST /api/auth/login` | Login with username and password, returns JWT token |
 | `GET /api/status?mode=live` | CDC zone, open positions, total PnL, account balance |
 | `GET /api/trades?mode=live` | Full trade history |
 | `GET /api/candles?timeframe=&symbol=` | OHLCV + CDC indicator overlay (emaFast, emaSlow, zone, signal) |
@@ -132,10 +136,12 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 - `src/modules/trading/trading.service.ts` — order execution (reads settings from DB)
 - `src/modules/trading-settings/trading-settings.service.ts` — settings CRUD (composite PK mode+symbol)
 - `src/modules/market-data/market-data.service.ts` — 3 exchange instances + fetchBalance()
-- `src/modules/dashboard/dashboard.controller.ts` — all API endpoints
-- `src/database/entities/` — TypeORM entities
-- `src/config/configuration.ts` — minimal .env mapping (Binance keys, DB, notifications)
-- `dashboard/src/App.jsx` — main React app, mode/pair state, data fetching
+- `src/modules/auth/` — JWT authentication module, services, controller, guard [NEW]
+- `src/modules/dashboard/dashboard.controller.ts` — all API endpoints (protected by JwtAuthGuard)
+- `src/database/entities/` — TypeORM entities (including UserEntity [NEW])
+- `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt credentials)
+- `dashboard/src/App.jsx` — main React app, authentication state, mode/pair state, data fetching
+- `dashboard/src/components/Login.jsx` — login form with glassmorphism styling [NEW]
 - `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
 - `dashboard/src/components/StatusCard.jsx` — bot status, CDC zone, account balance
 - `dashboard/src/components/Settings.jsx` — per-mode/per-pair settings form

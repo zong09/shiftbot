@@ -111,16 +111,20 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 
 ### Dashboard API endpoints
 
-| Endpoint | Returns |
+> [!IMPORTANT]
+> All `/api/*` endpoints except `/api/auth/login` require authentication. Set `Authorization: Bearer <JWT_TOKEN>` in request headers.
+
+| Endpoint | Returns / Purpose |
 |---|---|
-| `GET /api/status` | CDC zone, open positions, total PnL |
-| `GET /api/trades` | Full trade history |
-| `GET /api/candles?timeframe=` | OHLCV + CDC indicator overlay (emaFast, emaSlow, zone, signal) |
-| `GET /api/indicator` | Latest CDC calculation on-demand |
-| `GET /api/settings` | Trading settings for both modes |
-| `GET /api/settings/:mode` | Settings for one mode |
-| `PUT /api/settings/:mode` | Update settings for one mode |
-| `GET /api/health` | Uptime check |
+| `POST /api/auth/login` | Login with username and password, returns JWT token |
+| `GET /api/status` | CDC zone, open positions, total PnL (auth required) |
+| `GET /api/trades` | Full trade history (auth required) |
+| `GET /api/candles?timeframe=` | OHLCV + CDC indicator overlay (emaFast, emaSlow, zone, signal) (auth required) |
+| `GET /api/indicator` | Latest CDC calculation on-demand (auth required) |
+| `GET /api/settings` | Trading settings for both modes (auth required) |
+| `GET /api/settings/:mode` | Settings for one mode (auth required) |
+| `PUT /api/settings/:mode` | Update settings for one mode (auth required) |
+| `GET /api/health` | Uptime check (auth required) |
 
 ## Key files
 
@@ -129,7 +133,10 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 - `src/modules/trading/trading.service.ts` — order execution (reads settings from DB)
 - `src/modules/trading-settings/trading-settings.service.ts` — settings CRUD
 - `src/modules/market-data/market-data.service.ts` — 3 exchange instances
-- `src/database/entities/` — TypeORM entities
-- `src/config/configuration.ts` — minimal .env mapping (Binance keys, DB, notifications)
+- `src/modules/auth/` — JWT authentication module, services, controller, guard [NEW]
+- `src/database/entities/` — TypeORM entities (including UserEntity [NEW])
+- `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt credentials)
+- `dashboard/src/App.jsx` — main React app, authentication state, data fetching [MODIFY]
+- `dashboard/src/components/Login.jsx` — login form with glassmorphism styling [NEW]
 - `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
 - `dashboard/src/components/Settings.jsx` — per-mode settings form

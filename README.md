@@ -8,7 +8,7 @@ NestJS trading bot for Binance Futures using the **CDC Action Zone V3 2020** ind
 
 ```
 src/
-├── config/configuration.ts          ← .env → typed config (Binance keys, DB, notifications)
+├── config/configuration.ts          ← .env → typed config (Binance keys, DB, notifications, JWT)
 ├── common/types/index.ts            ← shared interfaces and enums
 └── modules/
     ├── market-data/                 ← fetch OHLCV from Binance (3 exchange instances)
@@ -17,13 +17,15 @@ src/
     ├── trading-settings/            ← per-mode settings CRUD (PostgreSQL)
     ├── notification/                ← Telegram + LINE Notify
     ├── strategy/                    ← main trading loop + cron scheduler
-    └── dashboard/                   ← REST API for monitoring + settings
+    ├── auth/                        ← JWT authentication (login & api guard)
+    └── dashboard/                   ← REST API for monitoring + settings (protected by JwtAuthGuard)
 
 database/
 └── entities/
     ├── position.entity.ts           ← open/closed positions
     ├── trade-log.entity.ts          ← trade history
-    └── trading-settings.entity.ts  ← per-mode trading parameters
+    ├── trading-settings.entity.ts   ← per-mode trading parameters
+    └── user.entity.ts               ← user credentials table
 
 dashboard/                           ← Vite + React UI (port 5173)
 ```
@@ -73,6 +75,8 @@ The `.env` file only requires:
 | `BINANCE_DEMO_API_KEY` / `BINANCE_DEMO_API_SECRET` | Demo trading (`demo-fapi.binance.com`) |
 | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` | PostgreSQL |
 | `NOTIFY_CHANNEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Notifications |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin dashboard credentials (defaults to `admin` / `admin1234`) |
+| `JWT_SECRET` / `JWT_EXPIRY` | JWT token secret and expiration duration (default secret, expiry `24h`) |
 | `PORT` | Bot API port (default 3000) |
 
 ---
@@ -110,15 +114,19 @@ Signals are confirmed on candle close: the strategy loop drops the still-forming
 
 ## Dashboard API
 
-| Endpoint | Returns |
-|---|---|
-| `GET /api/status?mode=` | Bot status, open positions, CDC zone, PnL |
-| `GET /api/trades?mode=` | Full trade history |
-| `GET /api/candles?timeframe=` | OHLCV + EMA/zone overlay data |
-| `GET /api/indicator` | Latest CDC calculation |
-| `GET /api/settings` | Settings for live + sandbox |
-| `PUT /api/settings/:mode` | Update settings for a mode |
-| `GET /api/health` | Uptime check |
+> [!IMPORTANT]
+> All `/api/*` endpoints except `/api/auth/login` require authentication. Set `Authorization: Bearer <JWT_TOKEN>` in request headers.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `POST /api/auth/login` | POST | Login with username and password, returns JWT token |
+| `GET /api/status?mode=` | GET | Bot status, open positions, CDC zone, PnL (auth required) |
+| `GET /api/trades?mode=` | GET | Full trade history (auth required) |
+| `GET /api/candles?timeframe=` | GET | OHLCV + EMA/zone overlay data (auth required) |
+| `GET /api/indicator` | GET | Latest CDC calculation (auth required) |
+| `GET /api/settings` | GET | Settings for live + sandbox (auth required) |
+| `PUT /api/settings/:mode` | PUT | Update settings for a mode (auth required) |
+| `GET /api/health` | GET | Uptime check (auth required) |
 
 ---
 
