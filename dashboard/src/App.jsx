@@ -4,6 +4,7 @@ import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import PriceChart   from './components/PriceChart.jsx';
 import Settings      from './components/Settings.jsx';
+import Login         from './components/Login.jsx';
 import { useTheme } from './ThemeContext.jsx';
 import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair } from './api.js';
 
@@ -42,6 +43,7 @@ const tabClass = (active) =>
 
 export default function App() {
   const { theme, toggle } = useTheme();
+  const [token,          setToken]          = useState(() => localStorage.getItem('token'));
   const [mode,           setMode]           = useState('live');
   const [status,         setStatus]         = useState(null);
   const [trades,         setTrades]         = useState([]);
@@ -56,6 +58,15 @@ export default function App() {
   const [settings,       setSettings]       = useState(null);
   const [activeTab,      setActiveTab]      = useState('chart');
   const prevModeRef = useRef(null);
+
+  // Listen to token expiration or 401 events from Axios interceptor
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken(null);
+    };
+    window.addEventListener('unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+  }, []);
 
   const loadData = useCallback(async (activeMode, activeTf, activeSym) => {
     try {
@@ -82,11 +93,12 @@ export default function App() {
 
   // reload when mode or chartTimeframe or chartSymbol changes
   useEffect(() => {
+    if (!token) return;
     setLoading(true);
     loadData(mode, chartTimeframe, chartSymbol);
     const timer = setInterval(() => loadData(mode, chartTimeframe, chartSymbol), REFRESH_INTERVAL);
     return () => clearInterval(timer);
-  }, [mode, chartTimeframe, chartSymbol, loadData]);
+  }, [mode, chartTimeframe, chartSymbol, loadData, token]);
 
   // countdown display
   useEffect(() => {
@@ -107,6 +119,10 @@ export default function App() {
 
   const isSandbox = mode === 'sandbox';
   const firstPairStatus = settings?.[mode]?.[0]?.status ?? null;
+
+  if (!token) {
+    return <Login onLoginSuccess={setToken} />;
+  }
 
   return (
     <div className="min-h-dvh max-w-[1100px] mx-auto px-6 py-5">
@@ -140,6 +156,21 @@ export default function App() {
             className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-border text-secondary hover:bg-surface-alt hover:text-primary transition-colors duration-150 cursor-pointer"
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <button
+            onClick={() => {
+              localStorage.removeItem('token');
+              setToken(null);
+            }}
+            aria-label="Logout"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-[13px] font-medium text-secondary hover:bg-bear/10 hover:text-bear hover:border-bear/30 transition-colors duration-150 cursor-pointer"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Logout
           </button>
         </div>
       </div>

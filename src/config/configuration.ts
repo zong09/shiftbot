@@ -8,6 +8,16 @@ export default () => ({
     demoApiSecret: process.env.BINANCE_DEMO_API_SECRET,
   },
 
+  jwt: {
+    secret: process.env.JWT_SECRET || 'supersecretkey-shiftbot-change-me',
+    expiry: process.env.JWT_EXPIRY || '24h',
+  },
+
+  admin: {
+    username: process.env.ADMIN_USERNAME || 'admin',
+    password: process.env.ADMIN_PASSWORD || 'admin1234',
+  },
+
   database: {
     host:     process.env.DB_HOST || 'localhost',
     port:     parseInt(process.env.DB_PORT, 10) || 5432,

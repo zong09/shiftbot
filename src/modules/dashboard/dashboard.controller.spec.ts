@@ -5,6 +5,7 @@ import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CDCZone, CDCResult, Position, TradeLog } from '../../common/types';
 
 // ─── fixture helpers ─────────────────────────────────────────────────────────
@@ -107,7 +108,10 @@ describe('DashboardController', () => {
         { provide: CdcActionZoneService,  useValue: cdcSvc },
         { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), getAllSettings: jest.fn().mockResolvedValue([{ symbol: 'BTC/USDT:USDT', timeframe: '1h', status: 'on' }]), updateSettings: jest.fn().mockResolvedValue({}) } },
       ],
-    }).compile();
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
 
     controller = module.get<DashboardController>(DashboardController);
   });

@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, UseGuards } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('api')
 export class DashboardController {
   constructor(
