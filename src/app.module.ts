@@ -25,16 +25,27 @@ import { AuthModule } from './modules/auth/auth.module';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        host:     config.get<string>('database.host'),
-        port:     config.get<number>('database.port'),
-        username: config.get<string>('database.user'),
-        password: config.get<string>('database.password'),
-        database: config.get<string>('database.name'),
-        entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
-        synchronize: true,
-      }),
+      useFactory: (config: ConfigService) => {
+        const url = config.get<string>('database.url');
+        if (url) {
+          return {
+            type: 'postgres',
+            url,
+            entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
+            synchronize: true,
+          };
+        }
+        return {
+          type: 'postgres',
+          host:     config.get<string>('database.host'),
+          port:     config.get<number>('database.port'),
+          username: config.get<string>('database.user'),
+          password: config.get<string>('database.password'),
+          database: config.get<string>('database.name'),
+          entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
+          synchronize: true,
+        };
+      },
     }),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'dashboard', 'dist'),

@@ -19,6 +19,7 @@ export default () => ({
   },
 
   database: {
+    url:      process.env.DATABASE_URL,
     host:     process.env.DB_HOST || process.env.PGHOST || 'localhost',
     port:     parseInt(process.env.DB_PORT || process.env.PGPORT || '5432', 10),
     user:     process.env.DB_USER || process.env.PGUSER || 'shiftbot',
