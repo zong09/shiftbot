@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import configuration from './config/configuration';
 import { PositionEntity } from './database/entities/position.entity';
 import { TradeLogEntity } from './database/entities/trade-log.entity';
@@ -33,6 +35,10 @@ import { AuthModule } from './modules/auth/auth.module';
         entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
         synchronize: true,
       }),
+    }),
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'dashboard', 'dist'),
+      exclude: ['/api/(.*)'],
     }),
     TradingSettingsModule,
     MarketDataModule,
