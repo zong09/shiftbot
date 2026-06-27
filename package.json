@@ -4,7 +4,7 @@
   "description": "ShiftBot — CDC Action Zone V3 2020 Trading Bot on Binance Futures",
   "scripts": {
     "dev": "concurrently -n BOT,UI -c cyan,magenta \"nest start --watch\" \"cd dashboard && npm run dev\"",
-    "build": "nest build && cd dashboard && npm run build",
+    "build": "nest build && cd dashboard && npm install --include=dev && npm run build",
     "start": "node dist/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
