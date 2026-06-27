@@ -164,7 +164,7 @@ export default function App() {
       {/* Sandbox Banner */}
       {isSandbox && (
         <div className="border border-bull/30 bg-bull/10 text-bull rounded-lg px-4 py-2.5 mb-4 text-[13px]">
-          <strong>Sandbox Mode</strong> — Paper trading, ไม่มีการส่ง order จริง
+          <strong>Sandbox Mode</strong> — ส่ง order จริงไปที่ Binance Demo Trade
         </div>
       )}
 
