@@ -27,12 +27,16 @@ import { AuthModule } from './modules/auth/auth.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('database.url');
+        const isProd = process.env.NODE_ENV === 'production';
+        const useSsl = isProd || (url && (url.includes('railway') || url.includes('supabase') || url.includes('neon')));
+
         if (url) {
           return {
             type: 'postgres',
             url,
             entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
             synchronize: true,
+            ssl: useSsl ? { rejectUnauthorized: false } : false,
           };
         }
         return {
@@ -44,6 +48,7 @@ import { AuthModule } from './modules/auth/auth.module';
           database: config.get<string>('database.name'),
           entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
           synchronize: true,
+          ssl: useSsl ? { rejectUnauthorized: false } : false,
         };
       },
     }),
