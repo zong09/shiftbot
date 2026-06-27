@@ -37,6 +37,7 @@ import { AuthModule } from './modules/auth/auth.module';
             entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
             synchronize: true,
             ssl: useSsl ? { rejectUnauthorized: false } : false,
+            retryAttempts: 2,
           };
         }
         return {
@@ -49,6 +50,7 @@ import { AuthModule } from './modules/auth/auth.module';
           entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
           synchronize: true,
           ssl: useSsl ? { rejectUnauthorized: false } : false,
+          retryAttempts: 2,
         };
       },
     }),

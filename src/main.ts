@@ -11,7 +11,7 @@ async function bootstrap() {
   app.enableCors();
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
 
   const logger = new Logger("Bootstrap");
   logger.log(`🤖 CDC Trading Bot กำลังทำงาน → http://localhost:${port}`);
