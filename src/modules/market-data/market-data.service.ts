@@ -83,26 +83,10 @@ export class MarketDataService implements OnModuleInit {
     }
   }
 
+  private ohlcvCache = new Map<string, { timestamp: number; data: OHLCV[] }>();
+
   async fetchOHLCV(limit = 200, symbol = "BTC/USDT:USDT"): Promise<OHLCV[]> {
-    try {
-      const raw = await this.exchangePublic.fetchOHLCV(
-        symbol,
-        "1h",
-        undefined,
-        limit,
-      );
-      return raw.map(([timestamp, open, high, low, close, volume]) => ({
-        timestamp: timestamp as number,
-        open: open as number,
-        high: high as number,
-        low: low as number,
-        close: close as number,
-        volume: volume as number,
-      }));
-    } catch (err) {
-      this.logger.error(`fetchOHLCV(${symbol}) error: ` + err.message);
-      return [];
-    }
+    return this.fetchOHLCVByTimeframe(limit, "1h", symbol);
   }
 
   async fetchOHLCVByTimeframe(
@@ -110,14 +94,24 @@ export class MarketDataService implements OnModuleInit {
     timeframe = "1h",
     symbol = "BTC/USDT:USDT",
   ): Promise<OHLCV[]> {
+    const cacheKey = `${symbol}:${timeframe}:${limit}`;
+    const cached = this.ohlcvCache.get(cacheKey);
+
+    // Cache for 15 seconds to prevent rate limit (418) from multiple dashboard clients
+    if (cached && Date.now() - cached.timestamp < 15_000) {
+      return cached.data;
+    }
+
     try {
-      const raw = await this.exchangePublic.fetchOHLCV(
+      // Use exchangeLive if configured to utilize UID rate limits, otherwise fallback to public
+      const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
+      const raw = await exchange.fetchOHLCV(
         symbol,
         timeframe,
         undefined,
         limit,
       );
-      return raw.map(([timestamp, open, high, low, close, volume]) => ({
+      const data = raw.map(([timestamp, open, high, low, close, volume]) => ({
         timestamp: timestamp as number,
         open: open as number,
         high: high as number,
@@ -125,11 +119,15 @@ export class MarketDataService implements OnModuleInit {
         close: close as number,
         volume: volume as number,
       }));
+
+      this.ohlcvCache.set(cacheKey, { timestamp: Date.now(), data });
+      return data;
     } catch (err) {
       this.logger.error(
         `fetchOHLCVByTimeframe(${timeframe}, ${symbol}) error: ` + err.message,
       );
-      return [];
+      // Fallback to expired cache if available to prevent completely breaking on bans
+      return cached ? cached.data : [];
     }
   }
 
