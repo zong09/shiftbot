@@ -264,6 +264,7 @@ export default function App() {
             candles={candles}
             indicators={indicators}
             positions={(status?.openPositions ?? []).filter(p => p.symbol === chartSymbol)}
+            trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
             symbol={chartSymbol}
             chartTimeframe={chartTimeframe}
             onTimeframeChange={setChartTimeframe}

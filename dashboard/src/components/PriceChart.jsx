@@ -29,6 +29,7 @@ export default function PriceChart({
   candles = [],
   indicators = [],
   positions = [],
+  trades = [],
   symbol,
   chartTimeframe = '1h',
   onTimeframeChange,
@@ -251,7 +252,37 @@ export default function PriceChart({
         };
       });
 
-    candleRef.current.setMarkers([...cdcMarkers, ...posMarkers].sort((a, b) => a.time - b.time));
+    const tradeMarkers = trades
+      .filter(t => t.timestamp && (t.action.includes('LONG') || t.action.includes('SHORT') || t.action.includes('HIT')))
+      .map(t => {
+        const nearest = snapToNearestCandle(t.timestamp, series);
+        const isLongOpen = t.action === 'OPEN_LONG';
+        const isLongClose = t.action === 'CLOSE_LONG' || t.action === 'SL_HIT' || t.action === 'TP_HIT';
+        const isShortOpen = t.action === 'OPEN_SHORT';
+        const isShortClose = t.action === 'CLOSE_SHORT';
+        
+        let position = 'belowBar', color = colors.bull, shape = 'circle', text = '';
+        if (isLongOpen) {
+           position = 'belowBar'; color = colors.bull; shape = 'circle'; text = `En L @${Number(t.price).toLocaleString()}`;
+        } else if (isLongClose) {
+           position = 'aboveBar'; color = colors.bear; shape = 'square'; text = `Ex L @${Number(t.price).toLocaleString()}`;
+        } else if (isShortOpen) {
+           position = 'aboveBar'; color = colors.bear; shape = 'circle'; text = `En S @${Number(t.price).toLocaleString()}`;
+        } else if (isShortClose) {
+           position = 'belowBar'; color = colors.bull; shape = 'square'; text = `Ex S @${Number(t.price).toLocaleString()}`;
+        }
+
+        return {
+          time:     nearest.time,
+          position,
+          color,
+          shape,
+          text,
+          size:     1,
+        };
+      });
+
+    candleRef.current.setMarkers([...cdcMarkers, ...posMarkers, ...tradeMarkers].sort((a, b) => a.time - b.time));
 
     priceLineRefs.current.forEach(pl => { try { candleRef.current.removePriceLine(pl); } catch (_) {} });
     priceLineRefs.current = [];
