@@ -255,15 +255,7 @@ export default function PriceChart({
 
     priceLineRefs.current.forEach(pl => { try { candleRef.current.removePriceLine(pl); } catch (_) {} });
     priceLineRefs.current = [];
-    positions.forEach(p => {
-      if (p.stopLoss) priceLineRefs.current.push(candleRef.current.createPriceLine({
-        price: p.stopLoss, color: colors.bear, lineWidth: 1, lineStyle: 2, title: 'SL',
-      }));
-      if (p.takeProfit) priceLineRefs.current.push(candleRef.current.createPriceLine({
-        price: p.takeProfit, color: colors.bull, lineWidth: 1, lineStyle: 2, title: 'TP',
-      }));
-    });
-
+    // SL & TP removed
     // only fit when the underlying data changed — a theme-only re-run must not reset zoom/pan
     const dataKey = `${candles.length}:${candles[0]?.timestamp}:${candles[candles.length - 1]?.timestamp}`;
     if (dataKeyRef.current !== dataKey) {
@@ -372,8 +364,6 @@ export default function PriceChart({
                 {p.side === 'long' ? 'LONG' : 'SHORT'}
               </span>
               <span className="text-secondary">Entry&nbsp;<b className="text-primary">{formatPrice(p.entryPrice)}</b></span>
-              <span className="text-secondary">SL&nbsp;<b className="text-bear">{Number(p.stopLoss).toFixed(2)}</b></span>
-              <span className="text-secondary">TP&nbsp;<b className="text-bull">{Number(p.takeProfit).toFixed(2)}</b></span>
             </div>
           ))}
         </div>
