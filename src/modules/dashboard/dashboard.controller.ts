@@ -35,6 +35,7 @@ export class DashboardController {
         botStatus: s.status,
         openPositions: positions.map(p => ({
           id:         p.id,
+          symbol:     p.symbol,
           side:       p.side,
           entryPrice: p.entryPrice,
           quantity:   p.quantity,
