@@ -263,7 +263,7 @@ export default function App() {
           <PriceChart
             candles={candles}
             indicators={indicators}
-            positions={status?.openPositions ?? []}
+            positions={(status?.openPositions ?? []).filter(p => p.symbol === chartSymbol)}
             symbol={chartSymbol}
             chartTimeframe={chartTimeframe}
             onTimeframeChange={setChartTimeframe}
