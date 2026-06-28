@@ -152,7 +152,8 @@ export class StrategyService implements OnModuleInit {
       ctx.lastResult = result;
       const currentPrice = result.close;
 
-      await this.tradingService.checkSLTP(currentPrice, result.zone, mode, symbol);
+      // ปิดการใช้ SL/TP แบบตายตัว เพื่อให้ใช้สัญญาณจาก CDC ในการออกไม้แทนตามที่ผู้ใช้ต้องการ
+      // await this.tradingService.checkSLTP(currentPrice, result.zone, mode, symbol);
 
       if (s.status === 'pause') {
         this.logger.log(`[${mode}][${symbol}] status=pause — SLTP checked, signals skipped`);
@@ -167,11 +168,21 @@ export class StrategyService implements OnModuleInit {
           await this.notificationService.sendSignal('BUY', result, currentPrice);
         }
 
-        if (!await this.tradingService.hasOpenPosition(mode, symbol)) {
-          const position = await this.tradingService.openLong(currentPrice, result.zone, mode, symbol);
-          if (position && mode === 'live') {
-            await this.notificationService.sendOpenPosition(position);
+        // Close all Short positions
+        const positions = await this.tradingService.getOpenPositions(mode, symbol);
+        for (const pos of positions) {
+          if (pos.side === 'short') {
+            await this.tradingService.closeShort(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            if (mode === 'live') {
+              await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
+            }
           }
+        }
+
+        // Open Long position (checks maxPositions internally)
+        const position = await this.tradingService.openLong(currentPrice, result.zone, mode, symbol);
+        if (position && mode === 'live') {
+          await this.notificationService.sendOpenPosition(position);
         }
 
       } else if (result.signal === 'SELL') {
@@ -181,6 +192,7 @@ export class StrategyService implements OnModuleInit {
           await this.notificationService.sendSignal('SELL', result, currentPrice);
         }
 
+        // Close all Long positions
         const positions = await this.tradingService.getOpenPositions(mode, symbol);
         for (const pos of positions) {
           if (pos.side === 'long') {
@@ -189,6 +201,12 @@ export class StrategyService implements OnModuleInit {
               await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
             }
           }
+        }
+
+        // Open Short position (checks maxPositions internally)
+        const position = await this.tradingService.openShort(currentPrice, result.zone, mode, symbol);
+        if (position && mode === 'live') {
+          await this.notificationService.sendOpenPosition(position);
         }
 
       } else {

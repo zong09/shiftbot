@@ -103,12 +103,7 @@ function PairForm({ pair, mode, onSave, onRemove }) {
             <Field label="Max Positions">
               <input type="number" min={1} max={10} className={FIELD_CLASS} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
             </Field>
-            <Field label="Stop Loss %">
-              <input type="number" min={0} step={0.1} className={FIELD_CLASS} value={form.stopLossPct} onChange={e => set('stopLossPct', parseFloat(e.target.value))} />
-            </Field>
-            <Field label="Take Profit %">
-              <input type="number" min={0} step={0.1} className={FIELD_CLASS} value={form.takeProfitPct} onChange={e => set('takeProfitPct', parseFloat(e.target.value))} />
-            </Field>
+
             <Field label="EMA Fast">
               <input type="number" min={1} className={FIELD_CLASS} value={form.emaFast} onChange={e => set('emaFast', Number(e.target.value))} />
             </Field>

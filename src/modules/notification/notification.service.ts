@@ -31,8 +31,9 @@ export class NotificationService {
   }
 
   async sendOpenPosition(position: Position): Promise<void> {
+    const sideText = position.side === 'long' ? 'Long' : 'Short';
     const msg =
-      `📈 *เปิด Long Position*\n` +
+      `📈 *เปิด ${sideText} Position*\n` +
       `Symbol: ${position.symbol}\n` +
       `Entry: ${position.entryPrice.toFixed(2)} USDT\n` +
       `Qty: ${position.quantity}\n` +
@@ -52,8 +53,9 @@ export class NotificationService {
     const emoji = pnl >= 0 ? '✅' : '❌';
     const reasonText = { SIGNAL: 'Signal', SL: 'Stop Loss', TP: 'Take Profit' }[reason];
 
+    const sideText = position.side === 'long' ? 'Long' : 'Short';
     const msg =
-      `${emoji} *ปิด Long Position (${reasonText})*\n` +
+      `${emoji} *ปิด ${sideText} Position (${reasonText})*\n` +
       `Symbol: ${position.symbol}\n` +
       `Exit Price: ${currentPrice.toFixed(2)} USDT\n` +
       `Entry Price: ${position.entryPrice.toFixed(2)} USDT\n` +

@@ -60,7 +60,7 @@ export class TradingService {
   async openLong(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<Position | null> {
     const s = await this.settingsService.getSettings(mode, symbol);
 
-    const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol } });
+    const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol, side: 'long' } });
     if (openCount >= s.maxPositions) {
       this.logger.warn(`[${mode}][${symbol}] ถึงจำนวน max position แล้ว ไม่เปิด position ใหม่`);
       return null;
@@ -172,6 +172,123 @@ export class TradingService {
   }
 
   // ──────────────────────────────────────────────
+  //  OPEN SHORT
+  // ──────────────────────────────────────────────
+  async openShort(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<Position | null> {
+    const s = await this.settingsService.getSettings(mode, symbol);
+
+    const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol, side: 'short' } });
+    if (openCount >= s.maxPositions) {
+      this.logger.warn(`[${mode}][${symbol}] ถึงจำนวน max position แล้ว ไม่เปิด short ใหม่`);
+      return null;
+    }
+
+    try {
+      const quantity = parseFloat(
+        ((s.orderSizeUsdt * s.leverage) / currentPrice).toFixed(3),
+      );
+
+      let entryPrice = currentPrice;
+      let orderId: string | undefined;
+
+      const exchange = this.marketDataService.getExchange(mode);
+      await exchange.setLeverage(s.leverage, symbol);
+      const order = await exchange.createMarketSellOrder(symbol, quantity, {
+        reduceOnly: false,
+      });
+      entryPrice = order.average ?? currentPrice;
+      orderId    = order.id;
+
+      const stopLoss   = entryPrice * (1 + s.stopLossPct / 100);
+      const takeProfit = entryPrice * (1 - s.takeProfitPct / 100);
+
+      const saved = await this.positionRepo.save(
+        this.positionRepo.create({
+          symbol,
+          side:   'short',
+          entryPrice,
+          quantity,
+          stopLoss,
+          takeProfit,
+          status: 'open',
+          mode,
+        }),
+      );
+
+      await this.tradeLogRepo.save(
+        this.tradeLogRepo.create({
+          symbol,
+          action:  'OPEN_SHORT',
+          price:   entryPrice,
+          quantity,
+          zone,
+          signal:  'SELL',
+          orderId,
+          mode,
+        }),
+      );
+
+      this.logger.log(
+        `[${mode}][${symbol}] OPEN SHORT | Price=${entryPrice} | Qty=${quantity} | SL=${stopLoss.toFixed(2)} | TP=${takeProfit.toFixed(2)}`,
+      );
+
+      return saved as unknown as Position;
+    } catch (err) {
+      this.logger.error(`[${mode}][${symbol}] openShort error: ` + err.message);
+      return null;
+    }
+  }
+
+  // ──────────────────────────────────────────────
+  //  CLOSE SHORT
+  // ──────────────────────────────────────────────
+  async closeShort(
+    position: Position,
+    currentPrice: number,
+    zone: CDCZone,
+    reason: 'SIGNAL' | 'SL' | 'TP',
+    mode: TradingMode,
+  ): Promise<void> {
+    const symbol = position.symbol;
+
+    try {
+      const exchange = this.marketDataService.getExchange(mode);
+      await exchange.createMarketBuyOrder(symbol, position.quantity, {
+        reduceOnly: true,
+      });
+
+      const pnl       = (position.entryPrice - currentPrice) * position.quantity;
+      const closeTime = new Date();
+
+      await this.positionRepo.update(position.id, {
+        closedPnl: pnl,
+        closeTime,
+        status: 'closed',
+      });
+
+      const action = reason === 'SL' ? 'SL_HIT' : reason === 'TP' ? 'TP_HIT' : 'CLOSE_SHORT';
+      await this.tradeLogRepo.save(
+        this.tradeLogRepo.create({
+          symbol,
+          action,
+          price:    currentPrice,
+          quantity: position.quantity,
+          pnl,
+          zone,
+          signal:   'BUY',
+          mode,
+        }),
+      );
+
+      this.logger.log(
+        `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
+      );
+    } catch (err) {
+      this.logger.error(`[${mode}][${symbol}] closeShort error: ` + err.message);
+    }
+  }
+
+  // ──────────────────────────────────────────────
   //  CLOSE ALL OPEN POSITIONS for a specific symbol
   // ──────────────────────────────────────────────
   async closeAllPositions(mode: TradingMode, symbol: string): Promise<void> {
@@ -181,7 +298,9 @@ export class TradingService {
     const { last: currentPrice } = await this.marketDataService.fetchTicker(symbol);
     for (const pos of positions) {
       if (pos.side === 'long') {
-        await this.closeLong(pos, currentPrice, CDCZone.STRONG_BEAR, 'SIGNAL', mode);
+        await this.closeLong(pos, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+      } else if (pos.side === 'short') {
+        await this.closeShort(pos, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
       }
     }
     this.logger.log(`[${mode}][${symbol}] closeAllPositions: closed ${positions.length} position(s) at ${currentPrice}`);
@@ -251,6 +370,14 @@ export class TradingService {
         } else if (currentPrice >= position.takeProfit) {
           this.logger.log(`[${mode}][${symbol}] Take Profit triggered! Price=${currentPrice} TP=${position.takeProfit}`);
           await this.closeLong(position, currentPrice, zone, 'TP', mode);
+        }
+      } else if (position.side === 'short') {
+        if (currentPrice >= position.stopLoss) {
+          this.logger.warn(`[${mode}][${symbol}] Stop Loss triggered (Short)! Price=${currentPrice} SL=${position.stopLoss}`);
+          await this.closeShort(position, currentPrice, zone, 'SL', mode);
+        } else if (currentPrice <= position.takeProfit) {
+          this.logger.log(`[${mode}][${symbol}] Take Profit triggered (Short)! Price=${currentPrice} TP=${position.takeProfit}`);
+          await this.closeShort(position, currentPrice, zone, 'TP', mode);
         }
       }
     }
