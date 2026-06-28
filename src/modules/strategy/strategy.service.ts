@@ -131,6 +131,9 @@ export class StrategyService implements OnModuleInit {
         return;
       }
 
+      // 1. Sync positions with Binance to ensure DB consistency
+      await this.tradingService.syncPositions(mode, symbol);
+
       this.logger.log(`=== [${mode}][${symbol}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
 
       const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, s.timeframe, symbol);

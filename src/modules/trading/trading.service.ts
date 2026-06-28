@@ -188,6 +188,57 @@ export class TradingService {
   }
 
   // ──────────────────────────────────────────────
+  //  SYNC POSITIONS WITH BINANCE
+  // ──────────────────────────────────────────────
+  async syncPositions(mode: TradingMode, symbol?: string): Promise<void> {
+    const localPositions = await this.getOpenPositions(mode, symbol);
+    if (!localPositions.length) return;
+
+    try {
+      const exchange = this.marketDataService.getExchange(mode);
+      const symbolsToFetch = symbol ? [symbol] : Array.from(new Set(localPositions.map(p => p.symbol)));
+      
+      const exchangePositions = await exchange.fetchPositions(symbolsToFetch);
+      
+      for (const localPos of localPositions) {
+        // ccxt position side might be 'long' or 'short', or undefined if one-way and contracts is 0.
+        // We match by symbol and side (if available in exchange response).
+        const remotePos = exchangePositions.find(p => p.symbol === localPos.symbol && (!p.side || p.side === localPos.side));
+        
+        const isClosed = !remotePos || !remotePos.contracts || remotePos.contracts === 0;
+        
+        if (isClosed) {
+          this.logger.warn(`[${mode}][${localPos.symbol}] Position ${localPos.side} is actually closed on Binance. Updating DB to sync...`);
+          
+          await this.positionRepo.update(localPos.id, {
+            status: 'closed',
+            closeTime: new Date(),
+            // PnL and other details are difficult to fetch retroactively without fetchMyTrades, 
+            // so we leave closedPnl as 0 or calculate from last known state if needed.
+            closedPnl: 0,
+          });
+          
+          // Log trade update for manual tracking
+          await this.tradeLogRepo.save(
+            this.tradeLogRepo.create({
+              symbol: localPos.symbol,
+              action: 'SYNC_CLOSE',
+              price: 0, // Unknown
+              quantity: localPos.quantity,
+              pnl: 0,
+              zone: CDCZone.NONE,
+              signal: 'HOLD',
+              mode,
+            })
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.error(`[${mode}] syncPositions error: ` + err.message);
+    }
+  }
+
+  // ──────────────────────────────────────────────
   //  CHECK STOP LOSS / TAKE PROFIT
   // ──────────────────────────────────────────────
   async checkSLTP(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<void> {

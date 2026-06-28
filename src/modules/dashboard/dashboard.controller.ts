@@ -23,6 +23,9 @@ export class DashboardController {
     const allSettings = await this.settingsService.getAllSettings(mode);
 
     const pairs = await Promise.all(allSettings.map(async s => {
+      // Sync positions first to ensure accuracy
+      await this.tradingService.syncPositions(mode, s.symbol);
+
       const positions = await this.tradingService.getOpenPositions(mode, s.symbol);
       const pnl       = await this.tradingService.getTotalPnl(mode, s.symbol);
       const lastCdc   = this.strategyService.getLastResult(mode, s.symbol);

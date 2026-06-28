@@ -8,6 +8,7 @@ export interface OHLCV {
 }
 
 export enum CDCZone {
+  NONE = 0,
   STRONG_BULL = 1,   // Lime:       close > EMA_fast > EMA_slow, both EMAs rising
   BULL = 2,          // Green:      close > EMA_fast > EMA_slow, one EMA falling
   WEAK_BULL = 3,     // Olive:      close < EMA_fast > EMA_slow, EMA_fast rising
