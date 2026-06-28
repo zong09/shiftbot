@@ -12,16 +12,19 @@ export default function Positions({ positions = [] }) {
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr>
-            {['Side', 'Entry Price', 'Quantity', 'Opened'].map(h => (
+            {['Symbol', 'Side', 'Entry Price', 'Quantity', 'Opened'].map(h => (
               <th key={h} className={TH_CLASS}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {positions.length === 0 ? (
-            <tr><td colSpan={4} className="text-center text-secondary/70 py-8">ไม่มี position เปิดอยู่</td></tr>
+            <tr><td colSpan={5} className="text-center text-secondary/70 py-8">ไม่มี position เปิดอยู่</td></tr>
           ) : positions.map((p, i) => (
             <tr key={i} className="hover:bg-surface-alt/60 transition-colors duration-150">
+              <td className={`${TD_CLASS} font-semibold text-primary`}>
+                {p.symbol?.replace(':USDT', '')}
+              </td>
               <td className={`${TD_CLASS} font-semibold ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}>
                 {p.side.toUpperCase()}
               </td>

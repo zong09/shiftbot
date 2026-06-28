@@ -56,19 +56,20 @@ export default function TradeHistory({ trades = [] }) {
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr>
-            {['Action', 'Price', 'Qty', 'Zone', 'PnL', 'Time'].map(h => (
+            {['Symbol', 'Action', 'Price', 'Qty', 'Zone', 'PnL', 'Time'].map(h => (
               <th key={h} className={TH_CLASS}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {trades.length === 0 ? (
-            <tr><td colSpan={6} className="text-center text-secondary/70 py-8">ยังไม่มี trade</td></tr>
+            <tr><td colSpan={7} className="text-center text-secondary/70 py-8">ยังไม่มี trade</td></tr>
           ) : [...trades].reverse().map((t, i) => {
             const meta = ACTION_LABEL[t.action] ?? { label: t.action, className: 'text-primary' };
             const hasPnl = t.pnl != null;
             return (
               <tr key={i} className="hover:bg-surface-alt/60 transition-colors duration-150">
+                <td className={`${TD_CLASS} font-semibold text-primary`}>{t.symbol?.replace(':USDT', '')}</td>
                 <td className={`${TD_CLASS} font-semibold ${meta.className}`}>{meta.label}</td>
                 <td className={TD_CLASS}>{t.price?.toLocaleString()}</td>
                 <td className={TD_CLASS}>{t.quantity}</td>
