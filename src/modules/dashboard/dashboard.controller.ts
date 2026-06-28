@@ -22,9 +22,10 @@ export class DashboardController {
   async getStatus(@Query('mode') mode: TradingMode = 'live') {
     const allSettings = await this.settingsService.getAllSettings(mode);
 
+    // Sync all positions for this mode at once to avoid rate limits
+    await this.tradingService.syncPositions(mode);
+
     const pairs = await Promise.all(allSettings.map(async s => {
-      // Sync positions first to ensure accuracy
-      await this.tradingService.syncPositions(mode, s.symbol);
 
       const positions = await this.tradingService.getOpenPositions(mode, s.symbol);
       const pnl       = await this.tradingService.getTotalPnl(mode, s.symbol);

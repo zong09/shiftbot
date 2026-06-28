@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as ccxt from "ccxt";
+import * as WebSocket from "ws";
 import { OHLCV } from "../../common/types";
 
 @Injectable()
@@ -40,12 +41,14 @@ export class MarketDataService implements OnModuleInit {
     this.exchangeLive = new ccxt.binanceusdm({
       apiKey: liveKey,
       secret: liveSecret,
+      enableRateLimit: true,
       options: { defaultType: "future" },
     });
 
     this.exchangeDemo = new ccxt.binanceusdm({
       apiKey: demoKey,
       secret: demoSecret,
+      enableRateLimit: true,
       options: { defaultType: "future" },
     });
     // Binance Demo Trading uses demo-fapi.binance.com (urls.demo in ccxt).
@@ -61,6 +64,7 @@ export class MarketDataService implements OnModuleInit {
     this.logger.log(`[Demo] endpoint → ${endpoint}`);
 
     this.exchangePublic = new ccxt.binanceusdm({
+      enableRateLimit: true,
       options: { defaultType: "future" },
     });
 
@@ -83,7 +87,9 @@ export class MarketDataService implements OnModuleInit {
     }
   }
 
-  private ohlcvCache = new Map<string, { timestamp: number; data: OHLCV[] }>();
+  private wsConnections = new Map<string, WebSocket>();
+  private wsCandles = new Map<string, OHLCV[]>();
+  private wsPromises = new Map<string, Promise<OHLCV[]>>();
 
   async fetchOHLCV(limit = 200, symbol = "BTC/USDT:USDT"): Promise<OHLCV[]> {
     return this.fetchOHLCVByTimeframe(limit, "1h", symbol);
@@ -94,41 +100,115 @@ export class MarketDataService implements OnModuleInit {
     timeframe = "1h",
     symbol = "BTC/USDT:USDT",
   ): Promise<OHLCV[]> {
-    const cacheKey = `${symbol}:${timeframe}:${limit}`;
-    const cached = this.ohlcvCache.get(cacheKey);
+    return this.subscribeToKlineStream(symbol, timeframe, limit);
+  }
 
-    // Cache for 15 seconds to prevent rate limit (418) from multiple dashboard clients
-    if (cached && Date.now() - cached.timestamp < 15_000) {
-      return cached.data;
+  private async subscribeToKlineStream(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
+    const cacheKey = `${symbol}:${timeframe}`;
+    
+    // If we already have a populated cache, return it immediately
+    const existingCandles = this.wsCandles.get(cacheKey);
+    if (existingCandles && existingCandles.length > 0) {
+      return existingCandles;
     }
 
-    try {
-      // Use exchangeLive if configured to utilize UID rate limits, otherwise fallback to public
-      const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
-      const raw = await exchange.fetchOHLCV(
-        symbol,
-        timeframe,
-        undefined,
-        limit,
-      );
-      const data = raw.map(([timestamp, open, high, low, close, volume]) => ({
-        timestamp: timestamp as number,
-        open: open as number,
-        high: high as number,
-        low: low as number,
-        close: close as number,
-        volume: volume as number,
-      }));
-
-      this.ohlcvCache.set(cacheKey, { timestamp: Date.now(), data });
-      return data;
-    } catch (err) {
-      this.logger.error(
-        `fetchOHLCVByTimeframe(${timeframe}, ${symbol}) error: ` + err.message,
-      );
-      // Fallback to expired cache if available to prevent completely breaking on bans
-      return cached ? cached.data : [];
+    // If an initial fetch is already in progress, wait for it
+    const existingPromise = this.wsPromises.get(cacheKey);
+    if (existingPromise) {
+      return existingPromise;
     }
+
+    // Otherwise, start the initial REST fetch
+    const fetchPromise = (async () => {
+      try {
+        const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
+        const raw = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+        const data = raw.map(([timestamp, open, high, low, close, volume]) => ({
+          timestamp: timestamp as number,
+          open: open as number,
+          high: high as number,
+          low: low as number,
+          close: close as number,
+          volume: volume as number,
+        }));
+        
+        this.wsCandles.set(cacheKey, data);
+        
+        // Start the WebSocket connection for future real-time updates
+        this.initWebSocket(symbol, timeframe);
+        
+        return data;
+      } catch (err) {
+        this.logger.error(`Initial REST fetch failed for ${symbol} ${timeframe}: ${err.message}`);
+        this.wsPromises.delete(cacheKey);
+        return [];
+      }
+    })();
+
+    this.wsPromises.set(cacheKey, fetchPromise);
+    return fetchPromise;
+  }
+
+  private initWebSocket(symbol: string, timeframe: string) {
+    const cacheKey = `${symbol}:${timeframe}`;
+    if (this.wsConnections.has(cacheKey)) {
+       return; // Already connected
+    }
+
+    const wsSymbol = symbol.split(':')[0].replace('/', '').toLowerCase();
+    const wsUrl = `wss://fstream.binance.com/ws/${wsSymbol}@kline_${timeframe}`;
+    
+    const ws = new WebSocket(wsUrl);
+    this.wsConnections.set(cacheKey, ws);
+
+    ws.on('open', () => {
+      this.logger.log(`[WebSocket] Connected to ${wsSymbol}@kline_${timeframe}`);
+    });
+
+    ws.on('message', (data: WebSocket.Data) => {
+      try {
+        const payload = JSON.parse(data.toString());
+        if (payload.e === 'kline' && payload.k) {
+          const k = payload.k;
+          const kline: OHLCV = {
+            timestamp: k.t,
+            open: parseFloat(k.o),
+            high: parseFloat(k.h),
+            low: parseFloat(k.l),
+            close: parseFloat(k.c),
+            volume: parseFloat(k.v),
+          };
+
+          const candles = this.wsCandles.get(cacheKey);
+          if (candles && candles.length > 0) {
+            const lastCandle = candles[candles.length - 1];
+            if (lastCandle.timestamp === kline.timestamp) {
+              // Update the current unclosed candle
+              candles[candles.length - 1] = kline;
+            } else if (kline.timestamp > lastCandle.timestamp) {
+              // A new candle has started, push it and remove the oldest to maintain size
+              candles.push(kline);
+              if (candles.length > 200) {
+                candles.shift();
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Ignore parsing errors
+      }
+    });
+
+    ws.on('close', () => {
+      this.logger.warn(`[WebSocket] Disconnected from ${wsSymbol}@kline_${timeframe}, reconnecting...`);
+      this.wsConnections.delete(cacheKey);
+      setTimeout(() => this.initWebSocket(symbol, timeframe), 5000);
+    });
+
+    ws.on('error', (err) => {
+      this.logger.error(`[WebSocket] Error on ${wsSymbol}@kline_${timeframe}: ${err.message}`);
+      ws.close();
+    });
   }
 
   async fetchTicker(
