@@ -282,7 +282,7 @@ export default function PriceChart({
         };
       });
 
-    candleRef.current.setMarkers([...cdcMarkers, ...posMarkers, ...tradeMarkers].sort((a, b) => a.time - b.time));
+    candleRef.current.setMarkers([...posMarkers, ...tradeMarkers].sort((a, b) => a.time - b.time));
 
     priceLineRefs.current.forEach(pl => { try { candleRef.current.removePriceLine(pl); } catch (_) {} });
     priceLineRefs.current = [];
