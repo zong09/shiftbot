@@ -37,7 +37,7 @@ function Tile({ label, children, sub }) {
   );
 }
 
-export default function StatusCard({ status, botStatus, onStatusChange }) {
+export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolChange, onStatusChange }) {
   if (!status) {
     return (
       <div className="bg-surface border border-border rounded-lg p-5 mb-4 text-secondary text-sm">
@@ -45,8 +45,11 @@ export default function StatusCard({ status, botStatus, onStatusChange }) {
       </div>
     );
   }
-  const cdc = status.lastCDC;
-  const pnl = parseFloat(status.totalPnl);
+  
+  const activePairStatus = status.pairs?.find(p => p.symbol === activeSymbol) || status.pairs?.[0] || status;
+  const cdc = activePairStatus.lastCDC;
+  const pnl = parseFloat(activePairStatus.totalPnl || 0);
+  const botStatus = activePairStatus.botStatus;
   const cfg = STATUS_CFG[botStatus] ?? null;
   const zoneColor = zoneByNumber(cdc?.zone)?.color;
 
@@ -75,9 +78,27 @@ export default function StatusCard({ status, botStatus, onStatusChange }) {
           </div>
         </div>
         <div className="text-xs text-secondary">
-          {status.symbol?.replace(':USDT', '')} · {status.timeframe}
+          {activePairStatus.symbol?.replace(':USDT', '')} · {activePairStatus.timeframe}
         </div>
       </div>
+
+      {pairs.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {pairs.map(p => (
+            <button
+              key={p.symbol}
+              onClick={() => onSymbolChange?.(p.symbol)}
+              className={`rounded-full border px-3.5 py-1 text-xs font-semibold cursor-pointer transition-colors duration-150 ${
+                activeSymbol === p.symbol
+                  ? 'border-accent text-accent bg-accent/5'
+                  : 'border-border text-secondary hover:text-primary hover:bg-surface-alt'
+              }`}
+            >
+              {p.symbol.replace(':USDT', '')}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <Tile label="Signal">

@@ -236,30 +236,17 @@ export default function App() {
         <>
           <StatusCard
             status={status}
-            botStatus={firstPairStatus}
+            pairs={settings?.[mode] ?? []}
+            activeSymbol={chartSymbol}
+            onSymbolChange={setChartSymbol}
             onStatusChange={async (newStatus) => {
-              const pairs = settings?.[mode] ?? [];
-              await Promise.all(pairs.map(p => updateSettings(mode, { symbol: p.symbol, status: newStatus })));
-              await loadData(mode, chartTimeframe, chartSymbol);
+              const activeSettings = settings?.[mode]?.find(p => p.symbol === chartSymbol);
+              if (activeSettings) {
+                await updateSettings(mode, { symbol: chartSymbol, status: newStatus });
+                await loadData(mode, chartTimeframe, chartSymbol);
+              }
             }}
           />
-          {(settings?.[mode]?.length ?? 0) > 1 && (
-            <div className="flex flex-wrap gap-2 mb-3">
-              {settings[mode].map(p => (
-                <button
-                  key={p.symbol}
-                  onClick={() => setChartSymbol(p.symbol)}
-                  className={`rounded-full border px-3.5 py-1 text-xs font-semibold cursor-pointer transition-colors duration-150 ${
-                    chartSymbol === p.symbol
-                      ? 'border-accent text-accent'
-                      : 'border-border text-secondary hover:text-primary hover:bg-surface-alt'
-                  }`}
-                >
-                  {p.symbol.replace(':USDT', '')}
-                </button>
-              ))}
-            </div>
-          )}
           <PriceChart
             candles={candles}
             indicators={indicators}
