@@ -18,9 +18,9 @@ export default function TradeHistory({ trades = [] }) {
   const { colors } = useTheme();
 
   // เรียงเก่าไปใหม่ สำหรับกราฟ (ซ้ายไปขวา)
-  const chartTrades = [...trades].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+  const chartTrades = [...trades].sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
   // เรียงใหม่ไปเก่า สำหรับตาราง (บนลงล่าง)
-  const tableTrades = [...trades].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const tableTrades = [...trades].sort((a, b) => (a.timestamp > b.timestamp ? -1 : 1));
 
   // สร้าง PnL chart data จาก closed trades
   const pnlData = chartTrades
