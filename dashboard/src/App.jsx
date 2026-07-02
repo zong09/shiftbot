@@ -256,7 +256,13 @@ export default function App() {
             chartTimeframe={chartTimeframe}
             onTimeframeChange={setChartTimeframe}
           />
-          <Positions  positions={status?.openPositions ?? []} />
+          <Positions
+            positions={status?.openPositions ?? []}
+            onClose={async (id) => {
+              await closePosition(id);
+              await loadData(mode, chartTimeframe, chartSymbol);
+            }}
+          />
           <TradeHistory trades={trades} />
         </>
       )}

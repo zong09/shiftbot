@@ -124,6 +124,7 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 | `GET /api/settings` | Trading settings for both modes (auth required) |
 | `GET /api/settings/:mode` | Settings for one mode (auth required) |
 | `PUT /api/settings/:mode` | Update settings for one mode (auth required) |
+| `POST /api/positions/:id/close` | Manually close a single position by id (market close via `TradingService.closePositionById`) |
 | `GET /api/health` | Uptime check (auth required) |
 
 ## Key files

@@ -126,6 +126,7 @@ Signals are confirmed on candle close: the strategy loop drops the still-forming
 | `GET /api/indicator` | GET | Latest CDC calculation (auth required) |
 | `GET /api/settings` | GET | Settings for live + sandbox (auth required) |
 | `PUT /api/settings/:mode` | PUT | Update settings for a mode (auth required) |
+| `POST /api/positions/:id/close` | POST | Manually market-close a single position by id (auth required) |
 | `GET /api/health` | GET | Uptime check (auth required) |
 
 ---

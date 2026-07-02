@@ -173,6 +173,13 @@ export class DashboardController {
     return { ok: true };
   }
 
+  /** ปิด position เดี่ยวด้วยมือ (manual market close) */
+  @Post('positions/:id/close')
+  async closePosition(@Param('id') id: string) {
+    const position = await this.tradingService.closePositionById(id);
+    return { ok: true, position };
+  }
+
   /** Update trading settings for a (mode, symbol) pair */
   @Put('settings/:mode')
   async updateSettings(

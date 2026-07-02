@@ -40,3 +40,4 @@ export const fetchSettings  = ()              => axios.get(`${BASE}/settings`).t
 export const updateSettings = (mode, data)    => axios.put(`${BASE}/settings/${mode}`, data).then(r => r.data);
 export const addPair        = (mode, symbol)  => axios.post(`${BASE}/settings/${mode}/pairs`, { symbol }).then(r => r.data);
 export const removePair     = (mode, symbol)  => axios.delete(`${BASE}/settings/${mode}/pairs?symbol=${encodeURIComponent(symbol)}`).then(r => r.data);
+export const closePosition  = (id)            => axios.post(`${BASE}/positions/${id}/close`).then(r => r.data);

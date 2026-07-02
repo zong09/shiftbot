@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, BadGatewayException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -304,6 +304,30 @@ export class TradingService {
       }
     }
     this.logger.log(`[${mode}][${symbol}] closeAllPositions: closed ${positions.length} position(s) at ${currentPrice}`);
+  }
+
+  // ──────────────────────────────────────────────
+  //  CLOSE A SINGLE POSITION BY ID (manual close)
+  // ──────────────────────────────────────────────
+  async closePositionById(id: string): Promise<Position> {
+    const position = await this.positionRepo.findOne({ where: { id } });
+    if (!position) throw new NotFoundException(`ไม่พบ position ${id}`);
+    if (position.status !== 'open') throw new BadRequestException(`position ${id} ถูกปิดไปแล้ว`);
+
+    const mode = position.mode as TradingMode;
+    const { last: currentPrice } = await this.marketDataService.fetchTicker(position.symbol);
+
+    if (position.side === 'long') {
+      await this.closeLong(position as unknown as Position, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+    } else {
+      await this.closeShort(position as unknown as Position, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+    }
+
+    const updated = await this.positionRepo.findOne({ where: { id } });
+    if (!updated || updated.status !== 'closed') {
+      throw new BadGatewayException('ปิด position ไม่สำเร็จ กรุณาลองใหม่หรือตรวจสอบที่ exchange');
+    }
+    return updated as unknown as Position;
   }
 
   // ──────────────────────────────────────────────
