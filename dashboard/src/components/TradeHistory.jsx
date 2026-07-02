@@ -17,8 +17,13 @@ const ACTION_LABEL = {
 export default function TradeHistory({ trades = [] }) {
   const { colors } = useTheme();
 
+  // เรียงเก่าไปใหม่ สำหรับกราฟ (ซ้ายไปขวา)
+  const chartTrades = [...trades].sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
+  // เรียงใหม่ไปเก่า สำหรับตาราง (บนลงล่าง)
+  const tableTrades = [...trades].sort((a, b) => (a.timestamp > b.timestamp ? -1 : 1));
+
   // สร้าง PnL chart data จาก closed trades
-  const pnlData = trades
+  const pnlData = chartTrades
     .filter(t => t.pnl != null)
     .map((t, i) => ({ name: `#${i + 1}`, pnl: parseFloat(t.pnl.toFixed(2)) }));
 
@@ -62,9 +67,9 @@ export default function TradeHistory({ trades = [] }) {
           </tr>
         </thead>
         <tbody>
-          {trades.length === 0 ? (
+          {tableTrades.length === 0 ? (
             <tr><td colSpan={7} className="text-center text-secondary/70 py-8">ยังไม่มี trade</td></tr>
-          ) : [...trades].reverse().map((t, i) => {
+          ) : tableTrades.map((t, i) => {
             const meta = ACTION_LABEL[t.action] ?? { label: t.action, className: 'text-primary' };
             const hasPnl = t.pnl != null;
             return (
