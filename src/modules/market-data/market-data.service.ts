@@ -90,6 +90,10 @@ export class MarketDataService implements OnModuleInit {
   private wsConnections = new Map<string, WebSocket>();
   private wsCandles = new Map<string, OHLCV[]>();
   private wsPromises = new Map<string, Promise<OHLCV[]>>();
+  private wsLastMessageAt = new Map<string, number>();
+  private wsWatchdogs = new Map<string, NodeJS.Timeout>();
+  // ไม่มี kline update เข้ามาเกินนี้ถือว่า socket ตาย (สมมติฐาน: symbol ที่ subscribe มี volume ซื้อขายต่อเนื่อง)
+  private static readonly WS_STALE_MS = 60_000;
 
   async fetchOHLCV(limit = 200, symbol = "BTC/USDT:USDT"): Promise<OHLCV[]> {
     return this.fetchOHLCVByTimeframe(limit, "1h", symbol);
@@ -103,9 +107,22 @@ export class MarketDataService implements OnModuleInit {
     return this.subscribeToKlineStream(symbol, timeframe, limit);
   }
 
+  private async fetchRestCandles(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
+    const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
+    const raw = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+    return raw.map(([timestamp, open, high, low, close, volume]) => ({
+      timestamp: timestamp as number,
+      open: open as number,
+      high: high as number,
+      low: low as number,
+      close: close as number,
+      volume: volume as number,
+    }));
+  }
+
   private async subscribeToKlineStream(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
     const cacheKey = `${symbol}:${timeframe}`;
-    
+
     // If we already have a populated cache, return it immediately
     const existingCandles = this.wsCandles.get(cacheKey);
     if (existingCandles && existingCandles.length > 0) {
@@ -121,22 +138,12 @@ export class MarketDataService implements OnModuleInit {
     // Otherwise, start the initial REST fetch
     const fetchPromise = (async () => {
       try {
-        const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
-        const raw = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
-        const data = raw.map(([timestamp, open, high, low, close, volume]) => ({
-          timestamp: timestamp as number,
-          open: open as number,
-          high: high as number,
-          low: low as number,
-          close: close as number,
-          volume: volume as number,
-        }));
-        
+        const data = await this.fetchRestCandles(symbol, timeframe, limit);
         this.wsCandles.set(cacheKey, data);
-        
+
         // Start the WebSocket connection for future real-time updates
         this.initWebSocket(symbol, timeframe);
-        
+
         return data;
       } catch (err) {
         this.logger.error(`Initial REST fetch failed for ${symbol} ${timeframe}: ${err.message}`);
@@ -149,6 +156,18 @@ export class MarketDataService implements OnModuleInit {
     return fetchPromise;
   }
 
+  private async reconnectWithBackfill(symbol: string, timeframe: string) {
+    const cacheKey = `${symbol}:${timeframe}`;
+    try {
+      const data = await this.fetchRestCandles(symbol, timeframe);
+      this.wsCandles.set(cacheKey, data);
+      this.logger.log(`[WebSocket] Backfilled ${data.length} candles for ${cacheKey} after reconnect`);
+    } catch (err) {
+      this.logger.error(`[WebSocket] Backfill failed for ${cacheKey}: ${err.message}`);
+    }
+    this.initWebSocket(symbol, timeframe);
+  }
+
   private initWebSocket(symbol: string, timeframe: string) {
     const cacheKey = `${symbol}:${timeframe}`;
     if (this.wsConnections.has(cacheKey)) {
@@ -157,15 +176,18 @@ export class MarketDataService implements OnModuleInit {
 
     const wsSymbol = symbol.split(':')[0].replace('/', '').toLowerCase();
     const wsUrl = `wss://fstream.binance.com/ws/${wsSymbol}@kline_${timeframe}`;
-    
+
     const ws = new WebSocket(wsUrl);
     this.wsConnections.set(cacheKey, ws);
+    this.wsLastMessageAt.set(cacheKey, Date.now());
 
     ws.on('open', () => {
       this.logger.log(`[WebSocket] Connected to ${wsSymbol}@kline_${timeframe}`);
+      this.wsLastMessageAt.set(cacheKey, Date.now());
     });
 
     ws.on('message', (data: WebSocket.Data) => {
+      this.wsLastMessageAt.set(cacheKey, Date.now());
       try {
         const payload = JSON.parse(data.toString());
         if (payload.e === 'kline' && payload.k) {
@@ -202,13 +224,25 @@ export class MarketDataService implements OnModuleInit {
     ws.on('close', () => {
       this.logger.warn(`[WebSocket] Disconnected from ${wsSymbol}@kline_${timeframe}, reconnecting...`);
       this.wsConnections.delete(cacheKey);
-      setTimeout(() => this.initWebSocket(symbol, timeframe), 5000);
+      const watchdog = this.wsWatchdogs.get(cacheKey);
+      if (watchdog) clearInterval(watchdog);
+      this.wsWatchdogs.delete(cacheKey);
+      setTimeout(() => this.reconnectWithBackfill(symbol, timeframe), 5000);
     });
 
     ws.on('error', (err) => {
       this.logger.error(`[WebSocket] Error on ${wsSymbol}@kline_${timeframe}: ${err.message}`);
       ws.close();
     });
+
+    const watchdog = setInterval(() => {
+      const lastMessageAt = this.wsLastMessageAt.get(cacheKey) ?? 0;
+      if (Date.now() - lastMessageAt > MarketDataService.WS_STALE_MS) {
+        this.logger.warn(`[WebSocket] ${wsSymbol}@kline_${timeframe} idle > ${MarketDataService.WS_STALE_MS}ms — forcing reconnect`);
+        ws.terminate();
+      }
+    }, 15_000);
+    this.wsWatchdogs.set(cacheKey, watchdog);
   }
 
   async fetchTicker(
