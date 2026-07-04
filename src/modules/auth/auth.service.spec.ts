@@ -34,7 +34,7 @@ describe('AuthService', () => {
     configService = {
       get: jest.fn((key: string) => {
         if (key === 'admin.username') return 'admin';
-        if (key === 'admin.password') return 'admin1234';
+        if (key === 'admin.password') return 'strong-test-password';
         return null;
       }),
     };
@@ -54,17 +54,29 @@ describe('AuthService', () => {
   describe('onApplicationBootstrap', () => {
     it('seeds admin user if no users exist', async () => {
       userRepo.count.mockResolvedValue(0);
-      const hashSpy = jest.spyOn(bcrypt, 'hash').mockImplementation(() => Promise.resolve('hashed_admin1234'));
+      const hashSpy = jest.spyOn(bcrypt, 'hash').mockImplementation(() => Promise.resolve('hashed_password'));
 
       await service.onApplicationBootstrap();
 
       expect(userRepo.count).toHaveBeenCalled();
       expect(userRepo.create).toHaveBeenCalledWith({
         username: 'admin',
-        passwordHash: 'hashed_admin1234',
+        passwordHash: 'hashed_password',
       });
       expect(userRepo.save).toHaveBeenCalled();
       hashSpy.mockRestore();
+    });
+
+    it('throws when seeding with a missing or default ADMIN_PASSWORD', async () => {
+      userRepo.count.mockResolvedValue(0);
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'admin.username') return 'admin';
+        if (key === 'admin.password') return 'admin1234';
+        return null;
+      });
+
+      await expect(service.onApplicationBootstrap()).rejects.toThrow(/ADMIN_PASSWORD/);
+      expect(userRepo.save).not.toHaveBeenCalled();
     });
 
     it('does not seed admin user if users already exist', async () => {

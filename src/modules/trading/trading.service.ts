@@ -8,6 +8,7 @@ import { PositionEntity } from '../../database/entities/position.entity';
 import { TradeLogEntity } from '../../database/entities/trade-log.entity';
 
 export type TradingMode = 'live' | 'sandbox';
+type Exchange = ReturnType<MarketDataService['getExchange']>;
 
 @Injectable()
 export class TradingService {
@@ -51,7 +52,116 @@ export class TradingService {
       .where('t.mode = :mode', { mode });
     if (symbol) qb.andWhere('t.symbol = :symbol', { symbol });
     const result = await qb.getRawOne<{ total: string }>();
-    return parseFloat(result.total);
+    return parseFloat(result?.total ?? '0');
+  }
+
+  // ──────────────────────────────────────────────
+  //  EXCHANGE ORDER HELPERS
+  // ──────────────────────────────────────────────
+
+  /** Round to the exchange lot size; throws when the result would be a zero-quantity order. */
+  private async toOrderAmount(exchange: Exchange, symbol: string, rawQty: number): Promise<number> {
+    if (!exchange.markets || !Object.keys(exchange.markets).length) {
+      await exchange.loadMarkets();
+    }
+    const qty = parseFloat(exchange.amountToPrecision(symbol, rawQty));
+    if (!qty || qty <= 0) {
+      throw new Error(
+        `quantity ${rawQty} rounds to 0 under ${symbol} lot size — increase orderSizeUsdt`,
+      );
+    }
+    return qty;
+  }
+
+  /**
+   * Place reduceOnly STOP_MARKET + TAKE_PROFIT_MARKET orders on the exchange so
+   * SL/TP trigger even while the bot is down. Failures are logged but do not
+   * roll back the entry — the position simply has no exchange-side protection.
+   */
+  private async placeProtectiveOrders(
+    exchange: Exchange,
+    symbol: string,
+    side: 'long' | 'short',
+    quantity: number,
+    stopLoss: number,
+    takeProfit: number,
+    mode: TradingMode,
+  ): Promise<{ slOrderId: string | null; tpOrderId: string | null }> {
+    const closeSide = side === 'long' ? 'sell' : 'buy';
+    let slOrderId: string | null = null;
+    let tpOrderId: string | null = null;
+
+    try {
+      const sl = await exchange.createOrder(symbol, 'market', closeSide, quantity, undefined, {
+        stopLossPrice: exchange.priceToPrecision(symbol, stopLoss),
+        reduceOnly: true,
+      });
+      slOrderId = sl.id ?? null;
+    } catch (err) {
+      this.logger.error(
+        `[${mode}][${symbol}] วาง STOP_MARKET ไม่สำเร็จ: ${err.message} — position นี้ไม่มี SL บน exchange`,
+      );
+    }
+
+    try {
+      const tp = await exchange.createOrder(symbol, 'market', closeSide, quantity, undefined, {
+        takeProfitPrice: exchange.priceToPrecision(symbol, takeProfit),
+        reduceOnly: true,
+      });
+      tpOrderId = tp.id ?? null;
+    } catch (err) {
+      this.logger.error(
+        `[${mode}][${symbol}] วาง TAKE_PROFIT_MARKET ไม่สำเร็จ: ${err.message} — position นี้ไม่มี TP บน exchange`,
+      );
+    }
+
+    return { slOrderId, tpOrderId };
+  }
+
+  /** Cancel the SL/TP sibling orders of a position; already-filled/cancelled orders are ignored. */
+  private async cancelProtectiveOrders(
+    exchange: Exchange,
+    position: Pick<Position, 'symbol' | 'slOrderId' | 'tpOrderId'>,
+    mode: TradingMode,
+  ): Promise<void> {
+    for (const orderId of [position.slOrderId, position.tpOrderId]) {
+      if (!orderId) continue;
+      try {
+        await exchange.cancelOrder(orderId, position.symbol);
+      } catch (err) {
+        this.logger.debug(
+          `[${mode}][${position.symbol}] cancel protective order ${orderId}: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * Realized PnL for a symbol since a timestamp via the Binance income endpoint.
+   * With maxPositions > 1 on the same symbol this aggregates across those positions.
+   * Returns null when the endpoint fails or has no records (caller falls back to mark price).
+   */
+  private async fetchRealizedPnl(
+    exchange: Exchange,
+    symbol: string,
+    sinceMs: number,
+  ): Promise<number | null> {
+    try {
+      if (!exchange.markets || !Object.keys(exchange.markets).length) {
+        await exchange.loadMarkets();
+      }
+      const raw = await (exchange as any).fapiPrivateGetIncome({
+        symbol: exchange.marketId(symbol),
+        incomeType: 'REALIZED_PNL',
+        startTime: sinceMs,
+        limit: 1000,
+      });
+      if (!Array.isArray(raw) || raw.length === 0) return null;
+      return raw.reduce((sum: number, r: any) => sum + parseFloat(r.income ?? '0'), 0);
+    } catch (err) {
+      this.logger.warn(`[${symbol}] fetchRealizedPnl ไม่สำเร็จ: ${err.message}`);
+      return null;
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -67,14 +177,14 @@ export class TradingService {
     }
 
     try {
-      const quantity = parseFloat(
-        ((s.orderSizeUsdt * s.leverage) / currentPrice).toFixed(3),
+      const exchange = this.marketDataService.getExchange(mode);
+      const quantity = await this.toOrderAmount(
+        exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
       );
 
       let entryPrice = currentPrice;
       let orderId: string | undefined;
 
-      const exchange = this.marketDataService.getExchange(mode);
       await exchange.setLeverage(s.leverage, symbol);
       const order = await exchange.createMarketBuyOrder(symbol, quantity, {
         reduceOnly: false,
@@ -84,6 +194,10 @@ export class TradingService {
 
       const stopLoss   = entryPrice * (1 - s.stopLossPct / 100);
       const takeProfit = entryPrice * (1 + s.takeProfitPct / 100);
+
+      const { slOrderId, tpOrderId } = await this.placeProtectiveOrders(
+        exchange, symbol, 'long', quantity, stopLoss, takeProfit, mode,
+      );
 
       const saved = await this.positionRepo.save(
         this.positionRepo.create({
@@ -95,6 +209,8 @@ export class TradingService {
           takeProfit,
           status: 'open',
           mode,
+          slOrderId,
+          tpOrderId,
         }),
       );
 
@@ -136,6 +252,7 @@ export class TradingService {
 
     try {
       const exchange = this.marketDataService.getExchange(mode);
+      await this.cancelProtectiveOrders(exchange, position, mode);
       await exchange.createMarketSellOrder(symbol, position.quantity, {
         reduceOnly: true,
       });
@@ -184,14 +301,14 @@ export class TradingService {
     }
 
     try {
-      const quantity = parseFloat(
-        ((s.orderSizeUsdt * s.leverage) / currentPrice).toFixed(3),
+      const exchange = this.marketDataService.getExchange(mode);
+      const quantity = await this.toOrderAmount(
+        exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
       );
 
       let entryPrice = currentPrice;
       let orderId: string | undefined;
 
-      const exchange = this.marketDataService.getExchange(mode);
       await exchange.setLeverage(s.leverage, symbol);
       const order = await exchange.createMarketSellOrder(symbol, quantity, {
         reduceOnly: false,
@@ -201,6 +318,10 @@ export class TradingService {
 
       const stopLoss   = entryPrice * (1 + s.stopLossPct / 100);
       const takeProfit = entryPrice * (1 - s.takeProfitPct / 100);
+
+      const { slOrderId, tpOrderId } = await this.placeProtectiveOrders(
+        exchange, symbol, 'short', quantity, stopLoss, takeProfit, mode,
+      );
 
       const saved = await this.positionRepo.save(
         this.positionRepo.create({
@@ -212,6 +333,8 @@ export class TradingService {
           takeProfit,
           status: 'open',
           mode,
+          slOrderId,
+          tpOrderId,
         }),
       );
 
@@ -253,6 +376,7 @@ export class TradingService {
 
     try {
       const exchange = this.marketDataService.getExchange(mode);
+      await this.cancelProtectiveOrders(exchange, position, mode);
       await exchange.createMarketBuyOrder(symbol, position.quantity, {
         reduceOnly: true,
       });
@@ -295,7 +419,16 @@ export class TradingService {
     const positions = await this.getOpenPositions(mode, symbol);
     if (!positions.length) return;
 
-    const { last: currentPrice } = await this.marketDataService.fetchTicker(symbol);
+    // Closing must proceed even if the ticker is unavailable — fall back to
+    // entryPrice (records PnL 0) rather than persisting NaN or aborting.
+    let currentPrice: number;
+    try {
+      const { last } = await this.marketDataService.fetchTicker(symbol);
+      currentPrice = Number.isFinite(last) ? last : positions[0].entryPrice;
+    } catch (err) {
+      this.logger.warn(`[${mode}][${symbol}] fetchTicker ไม่สำเร็จ (${err.message}) — ใช้ entryPrice แทนในการบันทึก PnL`);
+      currentPrice = positions[0].entryPrice;
+    }
     for (const pos of positions) {
       if (pos.side === 'long') {
         await this.closeLong(pos, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
@@ -316,6 +449,9 @@ export class TradingService {
 
     const mode = position.mode as TradingMode;
     const { last: currentPrice } = await this.marketDataService.fetchTicker(position.symbol);
+    if (!Number.isFinite(currentPrice)) {
+      throw new BadGatewayException('ดึงราคาล่าสุดจาก exchange ไม่ได้ กรุณาลองใหม่');
+    }
 
     if (position.side === 'long') {
       await this.closeLong(position as unknown as Position, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
@@ -352,23 +488,45 @@ export class TradingService {
         
         if (isClosed) {
           this.logger.warn(`[${mode}][${localPos.symbol}] Position ${localPos.side} is actually closed on Binance. Updating DB to sync...`);
-          
+
+          // The close happened on-exchange (SL/TP filled or manual) — cancel the surviving sibling order
+          await this.cancelProtectiveOrders(exchange, localPos, mode);
+
+          // Prefer actual realized PnL from the income endpoint; fall back to a
+          // mark-price estimate so the ledger never records a hard-coded 0.
+          const openTimeMs = new Date(localPos.openTime).getTime();
+          const realized = await this.fetchRealizedPnl(exchange, localPos.symbol, openTimeMs);
+
+          let pnl: number;
+          let price = 0;
+          if (realized !== null) {
+            pnl = realized;
+          } else {
+            try {
+              const { last } = await this.marketDataService.fetchTicker(localPos.symbol);
+              price = Number.isFinite(last) ? last : localPos.entryPrice;
+            } catch {
+              price = localPos.entryPrice;
+            }
+            pnl = localPos.side === 'long'
+              ? (price - localPos.entryPrice) * localPos.quantity
+              : (localPos.entryPrice - price) * localPos.quantity;
+            this.logger.warn(`[${mode}][${localPos.symbol}] ใช้ mark-price ประมาณ PnL (${pnl.toFixed(2)}) — income endpoint ไม่มีข้อมูล`);
+          }
+
           await this.positionRepo.update(localPos.id, {
             status: 'closed',
             closeTime: new Date(),
-            // PnL and other details are difficult to fetch retroactively without fetchMyTrades, 
-            // so we leave closedPnl as 0 or calculate from last known state if needed.
-            closedPnl: 0,
+            closedPnl: pnl,
           });
-          
-          // Log trade update for manual tracking
+
           await this.tradeLogRepo.save(
             this.tradeLogRepo.create({
               symbol: localPos.symbol,
               action: 'SYNC_CLOSE',
-              price: 0, // Unknown
+              price,
               quantity: localPos.quantity,
-              pnl: 0,
+              pnl,
               zone: CDCZone.NONE,
               signal: 'HOLD',
               mode,

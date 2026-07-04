@@ -66,9 +66,16 @@ function makeTradeLogRepo() {
 
 function makeFakeExchange() {
   return {
+    markets:               { 'BTC/USDT:USDT': {} },
+    loadMarkets:           jest.fn().mockResolvedValue(undefined),
+    amountToPrecision:     jest.fn((_symbol: string, qty: number) => qty.toFixed(3)),
+    priceToPrecision:      jest.fn((_symbol: string, price: number) => String(price)),
     setLeverage:           jest.fn().mockResolvedValue(undefined),
     createMarketBuyOrder:  jest.fn().mockResolvedValue({ average: 50_100, id: 'order-live-1' }),
     createMarketSellOrder: jest.fn().mockResolvedValue({}),
+    createOrder:           jest.fn().mockResolvedValue({ id: 'protective-1' }),
+    cancelOrder:           jest.fn().mockResolvedValue(undefined),
+    marketId:              jest.fn((symbol: string) => symbol.replace('/', '').replace(':USDT', '')),
   };
 }
 
@@ -376,10 +383,10 @@ describe('TradingService', () => {
       expect(positionRepo.update).not.toHaveBeenCalled();
     });
 
-    it('skips non-long positions (short) without calling closeLong', async () => {
+    it('does not trigger SL or TP for a short when price is between the two levels', async () => {
       const shortPos = makeOpenPosition({ side: 'short', stopLoss: 51_000, takeProfit: 48_000 });
       positionRepo.find.mockResolvedValue([shortPos]);
-      await service.checkSLTP(51_500, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT');
+      await service.checkSLTP(50_500, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.update).not.toHaveBeenCalled();
     });
   });

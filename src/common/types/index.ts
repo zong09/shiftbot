@@ -50,6 +50,8 @@ export interface Position {
   closedPnl?: number;
   status: 'open' | 'closed';
   mode: 'live' | 'sandbox';
+  slOrderId?: string | null;
+  tpOrderId?: string | null;
 }
 
 export interface TradeLog {

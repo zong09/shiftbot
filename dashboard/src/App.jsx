@@ -84,8 +84,12 @@ export default function App() {
       setSettings(cfg);
       setLastFetch(new Date());
       setCountdown(REFRESH_INTERVAL / 1000);
-    } catch {
-      setError('เชื่อมต่อ API ไม่ได้ — ตรวจสอบว่า Bot กำลังรันอยู่ที่ localhost:3001');
+    } catch (err) {
+      // 401 is handled by the axios interceptor (logout + redirect to Login) —
+      // don't overwrite it with a misleading "bot is down" banner
+      if (err.response?.status !== 401) {
+        setError('เชื่อมต่อ API ไม่ได้ — ตรวจสอบว่า Bot กำลังรันอยู่');
+      }
     } finally {
       setLoading(false);
     }

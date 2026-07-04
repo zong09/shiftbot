@@ -50,8 +50,11 @@ function makeTradingService(): jest.Mocked<Partial<TradingService>> {
     checkSLTP:        jest.fn().mockResolvedValue(undefined),
     hasOpenPosition:  jest.fn().mockResolvedValue(false),
     openLong:         jest.fn().mockResolvedValue({ id: 'pos-1', side: 'long', entryPrice: 51_000 }),
+    openShort:        jest.fn().mockResolvedValue({ id: 'pos-2', side: 'short', entryPrice: 51_000 }),
     getOpenPositions: jest.fn().mockResolvedValue([]),
     closeLong:        jest.fn().mockResolvedValue(undefined),
+    closeShort:       jest.fn().mockResolvedValue(undefined),
+    syncPositions:    jest.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -138,12 +141,11 @@ describe('StrategyService', () => {
       expect(tradingSvc.checkSLTP).not.toHaveBeenCalled();
     });
 
-    it('always calls checkSLTP with the current close price when a result is available', async () => {
+    it('does not call checkSLTP — SL/TP is enforced by native exchange orders', async () => {
       const result = makeCdcResult({ signal: 'HOLD', close: 51_000 });
       await buildModule(result);
       await service.runStrategy();
-      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'live', 'BTC/USDT:USDT');
-      expect(tradingSvc.checkSLTP).toHaveBeenCalledWith(51_000, result.zone, 'sandbox', 'BTC/USDT:USDT');
+      expect(tradingSvc.checkSLTP).not.toHaveBeenCalled();
     });
 
     // ── BUY path ────────────────────────────────────────────────────────────
@@ -166,12 +168,13 @@ describe('StrategyService', () => {
       expect(liveNotifyCalls).toHaveLength(1);
     });
 
-    it('does NOT call openLong when signal is BUY but a position is already open', async () => {
+    it('still calls openLong on BUY — maxPositions is enforced inside TradingService', async () => {
       const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
       await buildModule(result);
-      (tradingSvc.hasOpenPosition as jest.Mock).mockResolvedValue(true);
+      (tradingSvc.openLong as jest.Mock).mockResolvedValue(null); // limit reached
       await service.runStrategy();
-      expect(tradingSvc.openLong).not.toHaveBeenCalled();
+      expect(tradingSvc.openLong).toHaveBeenCalled();
+      expect(notificationSvc.sendOpenPosition).not.toHaveBeenCalled();
     });
 
     // ── SELL path ────────────────────────────────────────────────────────────

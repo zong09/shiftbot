@@ -29,14 +29,19 @@ import { AuthModule } from './modules/auth/auth.module';
         const url = config.get<string>('database.url');
         const isProd = process.env.NODE_ENV === 'production';
         const useSsl = isProd || (url && (url.includes('railway') || url.includes('supabase') || url.includes('neon')));
+        // Auto-sync schema in dev only — in production a schema drift must never
+        // silently ALTER live trading tables; use migrations instead.
+        const synchronize = !isProd;
+        // Verify the DB certificate unless explicitly disabled for hosts with self-signed certs.
+        const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
 
         if (url) {
           return {
             type: 'postgres',
             url,
             entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
-            synchronize: true,
-            ssl: useSsl ? { rejectUnauthorized: false } : false,
+            synchronize,
+            ssl: useSsl ? { rejectUnauthorized } : false,
             retryAttempts: 2,
           };
         }
@@ -48,8 +53,8 @@ import { AuthModule } from './modules/auth/auth.module';
           password: config.get<string>('database.password'),
           database: config.get<string>('database.name'),
           entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
-          synchronize: true,
-          ssl: useSsl ? { rejectUnauthorized: false } : false,
+          synchronize,
+          ssl: useSsl ? { rejectUnauthorized } : false,
           retryAttempts: 2,
         };
       },

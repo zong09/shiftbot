@@ -22,7 +22,7 @@ export class DashboardController {
 
   /** สถานะ bot — returns pairs array + aggregate fields for backward compat */
   @Get('status')
-  async getStatus(@Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode) {
+  async getStatus(@Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode = 'live') {
     const allSettings = await this.settingsService.getAllSettings(mode);
 
     // Sync all positions for this mode at once to avoid rate limits
@@ -87,7 +87,7 @@ export class DashboardController {
   /** ประวัติ trade ทั้งหมด */
   @Get('trades')
   async getTrades(
-    @Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode,
+    @Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode = 'live',
     @Query('symbol') symbol?: string,
   ) {
     const trades   = await this.tradingService.getTradeHistory(mode, symbol);

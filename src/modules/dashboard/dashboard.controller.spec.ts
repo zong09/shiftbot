@@ -63,6 +63,7 @@ function makeTradingService(): jest.Mocked<Partial<TradingService>> {
     getOpenPositions: jest.fn().mockResolvedValue([]),
     getTotalPnl:      jest.fn().mockResolvedValue(0),
     getTradeHistory:  jest.fn().mockResolvedValue([]),
+    syncPositions:    jest.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -74,7 +75,8 @@ function makeStrategyService(): jest.Mocked<Partial<StrategyService>> {
 
 function makeMarketDataService(): jest.Mocked<Partial<MarketDataService>> {
   return {
-    fetchOHLCV: jest.fn().mockResolvedValue([]),
+    fetchOHLCV:   jest.fn().mockResolvedValue([]),
+    fetchBalance: jest.fn().mockResolvedValue({ total: 0, free: 0, used: 0 }),
   } as any;
 }
 

@@ -37,4 +37,11 @@ export class PositionEntity {
 
   @Column({ default: 'live' })
   mode: string;
+
+  // Exchange-side protective order ids (STOP_MARKET / TAKE_PROFIT_MARKET)
+  @Column({ type: 'varchar', nullable: true })
+  slOrderId: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  tpOrderId: string | null;
 }
