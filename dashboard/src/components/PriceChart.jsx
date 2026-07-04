@@ -5,12 +5,20 @@ import { zoneByNumber } from '../theme.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
+// Fixed Asia/Bangkok offset (UTC+7, no DST) — keeps chart times aligned with the
+// tables, which format explicitly in Asia/Bangkok regardless of the browser TZ
+const TZ_OFFSET_SEC = 7 * 3600;
+
+// Returns null when the event falls farther than one bar from any loaded candle,
+// so off-range positions/trades don't glue a misleading marker to the edge candle
 function snapToNearestCandle(openTimeMs, series) {
-  const offsetSec = -new Date().getTimezoneOffset() * 60;
-  const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000) + offsetSec;
-  return series.reduce((nearest, candle) =>
-    Math.abs(candle.time - targetSec) < Math.abs(nearest.time - targetSec) ? candle : nearest
+  if (!series.length) return null;
+  const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000) + TZ_OFFSET_SEC;
+  const nearest = series.reduce((a, candle) =>
+    Math.abs(candle.time - targetSec) < Math.abs(a.time - targetSec) ? candle : a
   );
+  const barSec = series.length > 1 ? series[1].time - series[0].time : 3600;
+  return Math.abs(nearest.time - targetSec) <= barSec ? nearest : null;
 }
 
 function formatPrice(v) {
@@ -196,7 +204,7 @@ export default function PriceChart({
   useEffect(() => {
     if (!candleRef.current || !candles.length) return;
 
-    const offsetSec = -new Date().getTimezoneOffset() * 60;
+    const offsetSec = TZ_OFFSET_SEC;
     const indMap = new Map(indicators.map(d => [Math.floor(d.timestamp / 1000) + offsetSec, d]));
 
     const series = candles.map(c => {
@@ -242,6 +250,7 @@ export default function PriceChart({
       .filter(p => p.openTime)
       .map(p => {
         const nearest = snapToNearestCandle(p.openTime, series);
+        if (!nearest) return null;
         return {
           time:     nearest.time,
           position: p.side === 'long' ? 'belowBar' : 'aboveBar',
@@ -250,12 +259,14 @@ export default function PriceChart({
           text:     `${p.side === 'long' ? 'L' : 'S'} @${Number(p.entryPrice).toLocaleString()}`,
           size:     2,
         };
-      });
+      })
+      .filter(Boolean);
 
     const tradeMarkers = trades
       .filter(t => t.timestamp && (t.action.includes('LONG') || t.action.includes('SHORT') || t.action.includes('HIT')))
       .map(t => {
         const nearest = snapToNearestCandle(t.timestamp, series);
+        if (!nearest) return null;
         const isLongOpen = t.action === 'OPEN_LONG';
         const isLongClose = t.action === 'CLOSE_LONG' || t.action === 'SL_HIT' || t.action === 'TP_HIT';
         const isShortOpen = t.action === 'OPEN_SHORT';
@@ -280,7 +291,8 @@ export default function PriceChart({
           text,
           size:     1,
         };
-      });
+      })
+      .filter(Boolean);
 
     candleRef.current.setMarkers([...posMarkers, ...tradeMarkers].sort((a, b) => a.time - b.time));
 
@@ -293,11 +305,11 @@ export default function PriceChart({
       dataKeyRef.current = dataKey;
       chartRef.current.timeScale().fitContent();
     }
-  }, [candles, indicators, positions, colors]);
+  }, [candles, indicators, positions, trades, colors]);
 
   useEffect(() => {
     if (!ema12Ref.current || !ema26Ref.current || !indicators.length) return;
-    const offsetSec = -new Date().getTimezoneOffset() * 60;
+    const offsetSec = TZ_OFFSET_SEC;
     ema12Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaFast })));
     ema26Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaSlow })));
   }, [indicators]);

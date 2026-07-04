@@ -58,6 +58,7 @@ export default function App() {
   const [settings,       setSettings]       = useState(null);
   const [activeTab,      setActiveTab]      = useState('chart');
   const prevModeRef = useRef(null);
+  const loadSeqRef = useRef(0);
 
   // Listen to token expiration or 401 events from Axios interceptor
   useEffect(() => {
@@ -69,6 +70,9 @@ export default function App() {
   }, []);
 
   const loadData = useCallback(async (activeMode, activeTf, activeSym) => {
+    // Superseded responses (mode/symbol/timeframe changed mid-flight) must not
+    // overwrite fresh state — otherwise Live data can render under the Sandbox tab.
+    const seq = ++loadSeqRef.current;
     try {
       setError(null);
       const [s, t, c, cfg] = await Promise.all([
@@ -77,6 +81,7 @@ export default function App() {
         fetchCandles(activeTf, activeSym),
         fetchSettings(),
       ]);
+      if (seq !== loadSeqRef.current) return;
       setStatus(s);
       setTrades(t.trades ?? []);
       setCandles(c.candles ?? []);
@@ -85,6 +90,7 @@ export default function App() {
       setLastFetch(new Date());
       setCountdown(REFRESH_INTERVAL / 1000);
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       // 401 is handled by the axios interceptor (logout + redirect to Login) —
       // don't overwrite it with a misleading "bot is down" banner
       if (err.response?.status !== 401) {
@@ -99,6 +105,10 @@ export default function App() {
   useEffect(() => {
     if (!token) return;
     setLoading(true);
+    // Clear the chart so stale candles from the previous symbol/timeframe are
+    // never displayed as if they were current data
+    setCandles([]);
+    setIndicators([]);
     loadData(mode, chartTimeframe, chartSymbol);
     const timer = setInterval(() => loadData(mode, chartTimeframe, chartSymbol), REFRESH_INTERVAL);
     return () => clearInterval(timer);

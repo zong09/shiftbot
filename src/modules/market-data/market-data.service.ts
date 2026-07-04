@@ -1,11 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as ccxt from "ccxt";
 import * as WebSocket from "ws";
 import { OHLCV } from "../../common/types";
 
 @Injectable()
-export class MarketDataService implements OnModuleInit {
+export class MarketDataService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketDataService.name);
   private exchangeLive: ccxt.binanceusdm;
   private exchangeDemo: ccxt.binanceusdm;
@@ -92,6 +92,8 @@ export class MarketDataService implements OnModuleInit {
   private wsPromises = new Map<string, Promise<OHLCV[]>>();
   private wsLastMessageAt = new Map<string, number>();
   private wsWatchdogs = new Map<string, NodeJS.Timeout>();
+  // Keys whose stream was closed on purpose — their 'close' event must not trigger a reconnect
+  private wsStopped = new Set<string>();
   // ไม่มี kline update เข้ามาเกินนี้ถือว่า socket ตาย (สมมติฐาน: symbol ที่ subscribe มี volume ซื้อขายต่อเนื่อง)
   private static readonly WS_STALE_MS = 60_000;
 
@@ -177,8 +179,46 @@ export class MarketDataService implements OnModuleInit {
     return fetchPromise;
   }
 
+  /** Close one stream on purpose — its 'close' event will not reconnect. */
+  private closeStream(cacheKey: string): void {
+    this.wsStopped.add(cacheKey);
+    const ws = this.wsConnections.get(cacheKey);
+    this.wsConnections.delete(cacheKey);
+    const watchdog = this.wsWatchdogs.get(cacheKey);
+    if (watchdog) clearInterval(watchdog);
+    this.wsWatchdogs.delete(cacheKey);
+    this.wsLastMessageAt.delete(cacheKey);
+    this.wsPromises.delete(cacheKey);
+    try {
+      ws?.terminate();
+    } catch {
+      // socket already dead
+    }
+  }
+
+  /** Close every stream (all timeframes) and drop cached candles for a symbol no mode uses anymore. */
+  closeStreamsForSymbol(symbol: string): void {
+    const prefix = `${symbol}:`;
+    for (const key of Array.from(this.wsConnections.keys())) {
+      if (key.startsWith(prefix)) {
+        this.closeStream(key);
+        this.logger.log(`[WebSocket] closed stream ${key} (pair removed)`);
+      }
+    }
+    for (const key of Array.from(this.wsCandles.keys())) {
+      if (key.startsWith(prefix)) this.wsCandles.delete(key);
+    }
+  }
+
+  onModuleDestroy(): void {
+    for (const key of Array.from(this.wsConnections.keys())) {
+      this.closeStream(key);
+    }
+  }
+
   private async reconnectWithBackfill(symbol: string, timeframe: string) {
     const cacheKey = `${symbol}:${timeframe}`;
+    if (this.wsStopped.has(cacheKey)) return;
     try {
       const data = await this.fetchRestCandles(symbol, timeframe);
       this.wsCandles.set(cacheKey, data);
@@ -194,6 +234,8 @@ export class MarketDataService implements OnModuleInit {
     if (this.wsConnections.has(cacheKey)) {
        return; // Already connected
     }
+    // A fresh subscription revives a previously stopped key
+    this.wsStopped.delete(cacheKey);
 
     const wsSymbol = symbol.split(':')[0].replace('/', '').toLowerCase();
     const wsUrl = `wss://fstream.binance.com/ws/${wsSymbol}@kline_${timeframe}`;
@@ -243,11 +285,12 @@ export class MarketDataService implements OnModuleInit {
     });
 
     ws.on('close', () => {
-      this.logger.warn(`[WebSocket] Disconnected from ${wsSymbol}@kline_${timeframe}, reconnecting...`);
       this.wsConnections.delete(cacheKey);
       const watchdog = this.wsWatchdogs.get(cacheKey);
       if (watchdog) clearInterval(watchdog);
       this.wsWatchdogs.delete(cacheKey);
+      if (this.wsStopped.has(cacheKey)) return; // closed on purpose — no reconnect
+      this.logger.warn(`[WebSocket] Disconnected from ${wsSymbol}@kline_${timeframe}, reconnecting...`);
       setTimeout(() => this.reconnectWithBackfill(symbol, timeframe), 5000);
     });
 

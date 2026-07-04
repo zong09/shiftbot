@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, DefaultValuePipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, DefaultValuePipe, UseGuards } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -25,8 +25,11 @@ export class DashboardController {
   async getStatus(@Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode = 'live') {
     const allSettings = await this.settingsService.getAllSettings(mode);
 
-    // Sync all positions for this mode at once to avoid rate limits
-    await this.tradingService.syncPositions(mode);
+    // Sync all positions for this mode at once to avoid rate limits.
+    // An exchange hiccup here must not 500 the whole status endpoint.
+    try {
+      await this.tradingService.syncPositions(mode);
+    } catch { /* next poll retries */ }
 
     const pairs = await Promise.all(allSettings.map(async s => {
 
@@ -170,8 +173,24 @@ export class DashboardController {
   ) {
     if (!symbol) throw new BadRequestException('symbol query param required');
     await this.tradingService.closeAllPositions(mode, symbol);
+
+    // Never delete the cron/settings while positions are still open — that
+    // would orphan them with no job managing exits.
+    const remaining = await this.tradingService.getOpenPositions(mode, symbol);
+    if (remaining.length) {
+      throw new BadGatewayException(
+        `ปิด position ไม่สำเร็จ ${remaining.length} รายการ — pair ยังไม่ถูกลบ กรุณาลองใหม่`,
+      );
+    }
+
     this.strategyService.removePairJob(mode, symbol);
     await this.settingsService.removePair(mode, symbol);
+
+    // Close WS streams only when no other mode still trades this symbol
+    const grouped = await this.settingsService.getAllGrouped();
+    const stillUsed = [...grouped.live, ...grouped.sandbox].some(p => p.symbol === symbol);
+    if (!stillUsed) this.marketDataService.closeStreamsForSymbol(symbol);
+
     return { ok: true };
   }
 

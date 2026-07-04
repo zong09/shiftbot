@@ -88,6 +88,10 @@ Zones 1–4 = bullish, Zones 5–8 = bearish.
 
 **Confirm-on-close**: `StrategyService.runForPair()` filters out candles whose close time hasn't passed (`timestamp + TIMEFRAME_MS > now`) before calling `calculate()` — signals are evaluated on closed candles only. The chart (`calculateHistory`) still receives the live candle.
 
+**SL/TP = native exchange orders**: on entry, `TradingService` places reduceOnly `STOP_MARKET` + `TAKE_PROFIT_MARKET` orders on Binance (ids stored as `slOrderId`/`tpOrderId` on the position) so protection triggers even while the bot is down. Every close path (signal, manual, sync) cancels the sibling orders first. `checkSLTP()` is legacy — no longer called from the strategy loop. When a position closes on-exchange, `syncPositions` records realized PnL from the Binance income endpoint (mark-price fallback, never hard-coded 0).
+
+**Required env**: boot fails without `JWT_SECRET` (min 32 chars — `openssl rand -hex 32`); first-run admin seeding fails when `ADMIN_PASSWORD` is unset/default `admin1234`. Optional: `DASHBOARD_ORIGIN` (comma-separated CORS allowlist), `DB_SSL_REJECT_UNAUTHORIZED=false` (self-signed DB certs). TypeORM `synchronize` is auto-disabled when `NODE_ENV=production`.
+
 Methods accept optional `emaFastOverride` / `emaSlowOverride` — StrategyService passes per-mode values from DB.
 
 ### Cron schedule

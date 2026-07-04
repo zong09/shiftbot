@@ -8,7 +8,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: WinstonModule.createLogger(createWinstonLogger()),
   });
-  app.enableCors();
+  // Restrict CORS to the dashboard origin(s) when DASHBOARD_ORIGIN is set;
+  // stay permissive in local dev where the Vite proxy handles same-origin.
+  app.enableCors({
+    origin: process.env.DASHBOARD_ORIGIN ? process.env.DASHBOARD_ORIGIN.split(',') : true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
   );

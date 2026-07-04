@@ -131,8 +131,10 @@ describe('StrategyService', () => {
       const forming = { timestamp: Date.now(), open: 50_000, high: 50_000, low: 50_000, close: 50_000, volume: 1 };
       await buildModule(makeCdcResult(), [...closed, forming]);
       await service.runStrategy();
-      const passedCandles = (cdcSvc.calculate as jest.Mock).mock.calls[0][0];
-      expect(passedCandles).toEqual(closed);
+      // The lastZone-reconstruction call passes lastZone=undefined; the main
+      // signal call passes the reconstructed zone — assert on the main call.
+      const mainCalls = (cdcSvc.calculate as jest.Mock).mock.calls.filter(c => c[1] !== undefined);
+      expect(mainCalls[0][0]).toEqual(closed);
     });
 
     it('does nothing when cdcService.calculate() returns null', async () => {
@@ -244,7 +246,9 @@ describe('StrategyService', () => {
       await service.runStrategy();
       // Second call must not be blocked by isRunning=true
       await service.runStrategy();
-      expect(cdcSvc.calculate).toHaveBeenCalledTimes(4); // 2 runs × 2 modes
+      // 1st run: 2 modes × (lastZone reconstruction + signal) = 4
+      // 2nd run: lastZone already known → 2 modes × 1 = 2
+      expect(cdcSvc.calculate).toHaveBeenCalledTimes(6);
     });
   });
 

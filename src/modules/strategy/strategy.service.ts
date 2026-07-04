@@ -146,6 +146,14 @@ export class StrategyService implements OnModuleInit {
       const tfMs = TIMEFRAME_MS[s.timeframe] ?? 3_600_000;
       const confirmed = candles.filter((c) => c.timestamp + tfMs <= Date.now());
 
+      // After a restart lastZone is unknown — reconstruct it from the previous
+      // candle so a zone transition across the restart still emits BUY/SELL
+      // instead of being swallowed by the first HOLD.
+      if (ctx.lastZone === undefined && confirmed.length > 1) {
+        const prev = this.cdcService.calculate(confirmed.slice(0, -1), undefined, s.emaFast, s.emaSlow);
+        if (prev) ctx.lastZone = prev.zone;
+      }
+
       const result = this.cdcService.calculate(confirmed, ctx.lastZone, s.emaFast, s.emaSlow);
       if (!result) return;
 
