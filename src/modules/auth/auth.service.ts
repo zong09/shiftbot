@@ -25,7 +25,13 @@ export class AuthService implements OnApplicationBootstrap {
     const userCount = await this.userRepo.count();
     if (userCount === 0) {
       const username = this.configService.get<string>('admin.username') || 'admin';
-      const password = this.configService.get<string>('admin.password') || 'admin1234';
+      const password = this.configService.get<string>('admin.password');
+
+      if (!password || password === 'admin1234' || password.length < 8) {
+        throw new Error(
+          '[Auth] ADMIN_PASSWORD must be set to a non-default value of at least 8 characters before the first admin user can be seeded.',
+        );
+      }
 
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash(password, salt);
@@ -37,9 +43,10 @@ export class AuthService implements OnApplicationBootstrap {
       await this.userRepo.save(admin);
 
       this.logger.log(`[Auth] No users found in database. Seeded admin user: "${username}"`);
-      if (password === 'admin1234') {
-        this.logger.warn(`[Auth] ⚠️ WARNING: Admin password is using the default 'admin1234'. Please change it in your environment configurations!`);
-      }
+    } else if (this.configService.get<string>('admin.password') === 'admin1234') {
+      this.logger.warn(
+        `[Auth] ⚠️ ADMIN_PASSWORD in .env is still the default 'admin1234'. The seeded DB user may also use it — change the password.`,
+      );
     }
   }
 

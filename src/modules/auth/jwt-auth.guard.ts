@@ -17,7 +17,7 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('กรุณาเข้าสู่ระบบก่อนใช้งาน');
     }
     try {
-      const secret = this.configService.get<string>('jwt.secret') || 'supersecretkey-shiftbot-change-me';
+      const secret = this.configService.get<string>('jwt.secret');
       const payload = await this.jwtService.verifyAsync(token, {
         secret,
       });

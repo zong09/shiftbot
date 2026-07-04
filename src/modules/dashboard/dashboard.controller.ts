@@ -1,10 +1,13 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, DefaultValuePipe, UseGuards } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { AddPairDto } from './dto/add-pair.dto';
+import { ParseModePipe } from './mode.pipe';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api')
@@ -19,7 +22,7 @@ export class DashboardController {
 
   /** สถานะ bot — returns pairs array + aggregate fields for backward compat */
   @Get('status')
-  async getStatus(@Query('mode') mode: TradingMode = 'live') {
+  async getStatus(@Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode) {
     const allSettings = await this.settingsService.getAllSettings(mode);
 
     // Sync all positions for this mode at once to avoid rate limits
@@ -84,7 +87,7 @@ export class DashboardController {
   /** ประวัติ trade ทั้งหมด */
   @Get('trades')
   async getTrades(
-    @Query('mode') mode: TradingMode = 'live',
+    @Query('mode', new DefaultValuePipe('live'), ParseModePipe) mode: TradingMode,
     @Query('symbol') symbol?: string,
   ) {
     const trades   = await this.tradingService.getTradeHistory(mode, symbol);
@@ -144,17 +147,16 @@ export class DashboardController {
 
   /** Trading settings — all pairs for a mode */
   @Get('settings/:mode')
-  getSettingsByMode(@Param('mode') mode: TradingMode) {
+  getSettingsByMode(@Param('mode', ParseModePipe) mode: TradingMode) {
     return this.settingsService.getAllSettings(mode);
   }
 
   /** Add a new trading pair to a mode */
   @Post('settings/:mode/pairs')
   async addPair(
-    @Param('mode') mode: TradingMode,
-    @Body() body: { symbol: string },
+    @Param('mode', ParseModePipe) mode: TradingMode,
+    @Body() body: AddPairDto,
   ) {
-    if (!body.symbol) throw new BadRequestException('symbol required');
     const pair = await this.settingsService.addPair(mode, body.symbol);
     await this.strategyService.addPairJob(mode, body.symbol);
     return pair;
@@ -163,7 +165,7 @@ export class DashboardController {
   /** Remove a trading pair from a mode */
   @Delete('settings/:mode/pairs')
   async removePair(
-    @Param('mode') mode: TradingMode,
+    @Param('mode', ParseModePipe) mode: TradingMode,
     @Query('symbol') symbol: string,
   ) {
     if (!symbol) throw new BadRequestException('symbol query param required');
@@ -183,13 +185,19 @@ export class DashboardController {
   /** Update trading settings for a (mode, symbol) pair */
   @Put('settings/:mode')
   async updateSettings(
-    @Param('mode') mode: TradingMode,
-    @Body() body: Record<string, unknown>,
+    @Param('mode', ParseModePipe) mode: TradingMode,
+    @Body() body: UpdateSettingsDto,
   ) {
-    const symbol = body.symbol as string;
-    if (!symbol) throw new BadRequestException('symbol required in body');
+    const { symbol, ...fields } = body;
 
-    const { symbol: _sym, ...fields } = body;
+    if (fields.emaFast !== undefined || fields.emaSlow !== undefined) {
+      const current = await this.settingsService.getSettings(mode, symbol);
+      const fast = fields.emaFast ?? current.emaFast;
+      const slow = fields.emaSlow ?? current.emaSlow;
+      if (fast >= slow) {
+        throw new BadRequestException('emaFast must be less than emaSlow');
+      }
+    }
 
     if (fields.status === 'off') {
       const prev = await this.settingsService.getSettings(mode, symbol);

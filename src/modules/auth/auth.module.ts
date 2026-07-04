@@ -14,7 +14,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('jwt.secret') || 'supersecretkey-shiftbot-change-me',
+        secret: configService.get<string>('jwt.secret'),
         signOptions: {
           expiresIn: configService.get<string>('jwt.expiry') || '24h',
         },

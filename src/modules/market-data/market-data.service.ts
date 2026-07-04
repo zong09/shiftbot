@@ -120,25 +120,44 @@ export class MarketDataService implements OnModuleInit {
     }));
   }
 
+  private static readonly TIMEFRAME_MS: Record<string, number> = {
+    '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
+    '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
+  };
+
+  /** Cache is usable when it has history and the newest candle is at most 2 timeframes old. */
+  private isCacheUsable(candles: OHLCV[] | undefined, timeframe: string): boolean {
+    if (!candles || candles.length < 2) return false;
+    const tfMs = MarketDataService.TIMEFRAME_MS[timeframe] ?? 3_600_000;
+    const last = candles[candles.length - 1];
+    return Date.now() - last.timestamp <= 2 * tfMs;
+  }
+
   private async subscribeToKlineStream(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
     const cacheKey = `${symbol}:${timeframe}`;
 
-    // If we already have a populated cache, return it immediately
+    // Return the cache only while it is populated AND fresh — a stale cache
+    // (WS + backfill both down) must not silently feed the strategy.
     const existingCandles = this.wsCandles.get(cacheKey);
-    if (existingCandles && existingCandles.length > 0) {
+    if (this.isCacheUsable(existingCandles, timeframe)) {
       return existingCandles;
     }
 
-    // If an initial fetch is already in progress, wait for it
+    // If a REST (re)fetch is already in progress, wait for it
     const existingPromise = this.wsPromises.get(cacheKey);
     if (existingPromise) {
       return existingPromise;
     }
 
-    // Otherwise, start the initial REST fetch
     const fetchPromise = (async () => {
       try {
         const data = await this.fetchRestCandles(symbol, timeframe, limit);
+        if (!data.length) {
+          // Do NOT cache an empty result — it would block WS seeding and
+          // short-circuit every later call with [] forever.
+          this.logger.warn(`Empty OHLCV response for ${cacheKey} — will retry on next call`);
+          return [];
+        }
         this.wsCandles.set(cacheKey, data);
 
         // Start the WebSocket connection for future real-time updates
@@ -146,9 +165,11 @@ export class MarketDataService implements OnModuleInit {
 
         return data;
       } catch (err) {
-        this.logger.error(`Initial REST fetch failed for ${symbol} ${timeframe}: ${err.message}`);
-        this.wsPromises.delete(cacheKey);
+        this.logger.error(`REST fetch failed for ${cacheKey}: ${err.message}`);
         return [];
+      } finally {
+        // Always clear so the next call can retry instead of reusing a settled promise
+        this.wsPromises.delete(cacheKey);
       }
     })();
 

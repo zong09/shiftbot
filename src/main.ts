@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { WinstonModule } from "nest-winston";
 import { AppModule } from "./app.module";
@@ -9,6 +9,9 @@ async function bootstrap() {
     logger: WinstonModule.createLogger(createWinstonLogger()),
   });
   app.enableCors();
+  app.useGlobalPipes(
+    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
+  );
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');

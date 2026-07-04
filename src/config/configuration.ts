@@ -1,3 +1,14 @@
+const requireJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error(
+      '[Config] JWT_SECRET must be set and at least 32 characters long. ' +
+        'Generate one with: openssl rand -hex 32',
+    );
+  }
+  return secret;
+};
+
 export default () => ({
   port: parseInt(process.env.PORT, 10) || 3000,
 
@@ -9,13 +20,13 @@ export default () => ({
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'supersecretkey-shiftbot-change-me',
+    secret: requireJwtSecret(),
     expiry: process.env.JWT_EXPIRY || '24h',
   },
 
   admin: {
     username: process.env.ADMIN_USERNAME || 'admin',
-    password: process.env.ADMIN_PASSWORD || 'admin1234',
+    password: process.env.ADMIN_PASSWORD,
   },
 
   database: {

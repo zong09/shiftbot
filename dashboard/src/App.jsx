@@ -6,7 +6,7 @@ import PriceChart   from './components/PriceChart.jsx';
 import Settings      from './components/Settings.jsx';
 import Login         from './components/Login.jsx';
 import { useTheme } from './ThemeContext.jsx';
-import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair } from './api.js';
+import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair, closePosition } from './api.js';
 
 const REFRESH_INTERVAL = 30_000;
 
@@ -259,8 +259,12 @@ export default function App() {
           <Positions
             positions={status?.openPositions ?? []}
             onClose={async (id) => {
-              await closePosition(id);
-              await loadData(mode, chartTimeframe, chartSymbol);
+              try {
+                await closePosition(id);
+                await loadData(mode, chartTimeframe, chartSymbol);
+              } catch (err) {
+                setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
+              }
             }}
           />
           <TradeHistory trades={trades} />
