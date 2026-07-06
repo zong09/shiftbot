@@ -238,7 +238,9 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
     this.wsStopped.delete(cacheKey);
 
     const wsSymbol = symbol.split(':')[0].replace('/', '').toLowerCase();
-    const wsUrl = `wss://fstream.binance.com/ws/${wsSymbol}@kline_${timeframe}`;
+    // Binance WS endpoint split (2026-04-23): kline streams moved under /market —
+    // the legacy /ws path still accepts connections but never pushes market data.
+    const wsUrl = `wss://fstream.binance.com/market/ws/${wsSymbol}@kline_${timeframe}`;
 
     const ws = new WebSocket(wsUrl);
     this.wsConnections.set(cacheKey, ws);
