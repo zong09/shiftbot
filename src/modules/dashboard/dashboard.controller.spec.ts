@@ -60,10 +60,11 @@ function makeTradeLog(overrides: Partial<TradeLog> = {}): TradeLog {
 
 function makeTradingService(): jest.Mocked<Partial<TradingService>> {
   return {
-    getOpenPositions: jest.fn().mockResolvedValue([]),
-    getTotalPnl:      jest.fn().mockResolvedValue(0),
-    getTradeHistory:  jest.fn().mockResolvedValue([]),
-    syncPositions:    jest.fn().mockResolvedValue(undefined),
+    getOpenPositions:  jest.fn().mockResolvedValue([]),
+    getTotalPnl:       jest.fn().mockResolvedValue(0),
+    getTradeHistory:   jest.fn().mockResolvedValue([]),
+    syncPositions:     jest.fn().mockResolvedValue(undefined),
+    validateOrderSize: jest.fn().mockResolvedValue(undefined),
   } as any;
 }
 

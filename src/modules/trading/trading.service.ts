@@ -74,6 +74,60 @@ export class TradingService {
   }
 
   /**
+   * ตรวจตอนบันทึก settings ว่า orderSizeUsdt × leverage ยังผ่าน minNotional ของ
+   * exchange หลังปัดเศษ lot size แล้ว (กัน error -4164 ตอนเปิดไม้จริง)
+   * โยน BadRequestException พร้อมค่าต่ำสุดที่แนะนำเมื่อไม่ผ่าน
+   * ถ้าโหลด market/ราคาไม่ได้ (infrastructure) จะข้ามการตรวจ ไม่ block การบันทึก
+   */
+  async validateOrderSize(
+    mode: TradingMode,
+    symbol: string,
+    orderSizeUsdt: number,
+    leverage: number,
+  ): Promise<void> {
+    const exchange = this.marketDataService.getExchange(mode);
+    let market: any;
+    let last: number;
+    try {
+      if (!exchange.markets || !Object.keys(exchange.markets).length) {
+        await exchange.loadMarkets();
+      }
+      market = exchange.markets[symbol];
+      ({ last } = await this.marketDataService.fetchTicker(symbol));
+    } catch (err) {
+      this.logger.warn(`[${mode}][${symbol}] validateOrderSize ข้ามการตรวจ: ${err.message}`);
+      return;
+    }
+    if (!market || !last) return;
+
+    const minCost = market.limits?.cost?.min ?? 0;
+    let qty = 0;
+    try {
+      qty = parseFloat(exchange.amountToPrecision(symbol, (orderSizeUsdt * leverage) / last));
+    } catch {
+      qty = 0;
+    }
+    const notional = qty * last;
+    if (qty > 0 && notional >= minCost) return;
+
+    // lot step: ccxt binance เก็บ precision.amount เป็น step size (เช่น 0.001)
+    // แต่กันเคสเป็นจำนวนตำแหน่งทศนิยมไว้ด้วย
+    const precision = market.precision?.amount;
+    const step = typeof precision === 'number' && precision > 0
+      ? (precision < 1 ? precision : Math.pow(10, -precision))
+      : 0;
+    const minQtyByCost = step > 0 ? Math.ceil(minCost / last / step) * step : minCost / last;
+    const minQty = Math.max(market.limits?.amount?.min ?? 0, minQtyByCost);
+    // +5% buffer กันราคาขยับหลังบันทึก
+    const suggested = Math.ceil(((minQty * last) / leverage) * 1.05 * 100) / 100;
+    throw new BadRequestException(
+      `orderSizeUsdt ${orderSizeUsdt} × leverage ${leverage}x = notional ~${notional.toFixed(2)} USDT ` +
+      `ต่ำกว่าขั้นต่ำ ${minCost} USDT ของ ${symbol} (หลังปัดเศษ lot size) — ` +
+      `ตั้ง orderSizeUsdt อย่างน้อย ~${suggested} USDT`,
+    );
+  }
+
+  /**
    * Place reduceOnly STOP_MARKET + TAKE_PROFIT_MARKET orders on the exchange so
    * SL/TP trigger even while the bot is down. Failures are logged but do not
    * roll back the entry — the position simply has no exchange-side protection.
@@ -233,8 +287,9 @@ export class TradingService {
 
       return saved as unknown as Position;
     } catch (err) {
+      // rethrow เพื่อให้ StrategyService ไม่อัปเดต lastZone — สัญญาณจะ retry แท่งถัดไป
       this.logger.error(`[${mode}][${symbol}] openLong error: ` + err.message);
-      return null;
+      throw err;
     }
   }
 
@@ -357,8 +412,9 @@ export class TradingService {
 
       return saved as unknown as Position;
     } catch (err) {
+      // rethrow เพื่อให้ StrategyService ไม่อัปเดต lastZone — สัญญาณจะ retry แท่งถัดไป
       this.logger.error(`[${mode}][${symbol}] openShort error: ` + err.message);
-      return null;
+      throw err;
     }
   }
 

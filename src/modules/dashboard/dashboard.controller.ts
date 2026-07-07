@@ -218,6 +218,16 @@ export class DashboardController {
       }
     }
 
+    if (fields.orderSizeUsdt !== undefined || fields.leverage !== undefined) {
+      const current = await this.settingsService.getSettings(mode, symbol);
+      await this.tradingService.validateOrderSize(
+        mode,
+        symbol,
+        fields.orderSizeUsdt ?? current.orderSizeUsdt,
+        fields.leverage ?? current.leverage,
+      );
+    }
+
     if (fields.status === 'off') {
       const prev = await this.settingsService.getSettings(mode, symbol);
       if (prev.status !== 'off') {

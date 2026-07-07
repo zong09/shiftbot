@@ -187,7 +187,9 @@ export class StrategyService implements OnModuleInit {
           }
         }
 
-        // Open Long position (checks maxPositions internally)
+        // Open Long — คืน null เมื่อชน maxPositions (ถือว่าจบ ไม่ retry)
+        // แต่ throw เมื่อสั่ง order ล้มเหลว → หลุดไป catch ด้านล่างโดยไม่อัปเดต
+        // ctx.lastZone ทำให้สัญญาณ BUY ถูกยิงซ้ำแท่งถัดไปแทนที่จะหายถาวร
         const position = await this.tradingService.openLong(currentPrice, result.zone, mode, symbol);
         if (position && mode === 'live') {
           await this.notificationService.sendOpenPosition(position);
@@ -211,7 +213,8 @@ export class StrategyService implements OnModuleInit {
           }
         }
 
-        // Open Short position (checks maxPositions internally)
+        // Open Short — semantics เดียวกับ openLong ด้านบน: null = ชน maxPositions,
+        // throw = order ล้มเหลว → ไม่อัปเดต ctx.lastZone → retry แท่งถัดไป
         const position = await this.tradingService.openShort(currentPrice, result.zone, mode, symbol);
         if (position && mode === 'live') {
           await this.notificationService.sendOpenPosition(position);

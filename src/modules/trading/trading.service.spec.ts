@@ -228,10 +228,11 @@ describe('TradingService', () => {
       expect(positionRepo.save).not.toHaveBeenCalled();
     });
 
-    it('returns null and does not throw when positionRepo.save rejects', async () => {
+    it('rethrows when positionRepo.save rejects so the strategy retries next candle', async () => {
       positionRepo.save.mockRejectedValue(new Error('DB error'));
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
-      expect(result).toBeNull();
+      await expect(
+        service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT'),
+      ).rejects.toThrow('DB error');
     });
   });
 
@@ -266,10 +267,51 @@ describe('TradingService', () => {
       expect(savedPos.entryPrice).toBe(50_000);
     });
 
-    it('returns null when the exchange throws', async () => {
+    it('rethrows when the exchange throws so the strategy retries next candle', async () => {
       exchange.setLeverage.mockRejectedValue(new Error('network error'));
-      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
-      expect(result).toBeNull();
+      await expect(
+        service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT'),
+      ).rejects.toThrow('network error');
+    });
+  });
+
+  // ── validateOrderSize() ───────────────────────────────────────────────────
+
+  describe('validateOrderSize()', () => {
+    // ticker mock: last = 50_050 — qty = orderSize×lev/50_050 truncated to 3 decimals
+    const withMarket = (market: object) => {
+      exchange.markets = { 'BTC/USDT:USDT': market } as any;
+    };
+
+    it('passes when notional after lot-size truncation meets the exchange minimum', async () => {
+      withMarket({ limits: { cost: { min: 50 } }, precision: { amount: 0.001 } });
+      // 100 × 5 / 50_050 = 0.00999 → 0.009 → notional 450.45 ≥ 50
+      await expect(
+        service.validateOrderSize('sandbox', 'BTC/USDT:USDT', 100, 5),
+      ).resolves.toBeUndefined();
+    });
+
+    it('throws BadRequestException with a suggested minimum when notional falls below minCost', async () => {
+      withMarket({ limits: { cost: { min: 50 } }, precision: { amount: 0.001 } });
+      // 4 × 5 / 50_050 = 0.0004 → rounds to 0.000 → notional 0 < 50
+      await expect(
+        service.validateOrderSize('sandbox', 'BTC/USDT:USDT', 4, 5),
+      ).rejects.toThrow(/ต่ำกว่าขั้นต่ำ 50 USDT/);
+    });
+
+    it('passes when the market defines no minCost limit', async () => {
+      withMarket({});
+      await expect(
+        service.validateOrderSize('sandbox', 'BTC/USDT:USDT', 100, 5),
+      ).resolves.toBeUndefined();
+    });
+
+    it('skips validation instead of blocking the save when the ticker fetch fails', async () => {
+      withMarket({ limits: { cost: { min: 50 } }, precision: { amount: 0.001 } });
+      (service as any).marketDataService.fetchTicker.mockRejectedValue(new Error('timeout'));
+      await expect(
+        service.validateOrderSize('sandbox', 'BTC/USDT:USDT', 10, 5),
+      ).resolves.toBeUndefined();
     });
   });
 
