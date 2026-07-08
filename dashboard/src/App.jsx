@@ -252,6 +252,7 @@ export default function App() {
           <PortfolioSummary
             pairs={status?.pairs ?? []}
             trades={trades}
+            balance={status?.balance}
             activeSymbol={chartSymbol}
             onSymbolChange={setChartSymbol}
           />

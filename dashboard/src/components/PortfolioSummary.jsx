@@ -4,7 +4,7 @@ import { SIGNAL_CLASS, Tile } from './StatusCard.jsx';
 
 const signed = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}`;
 
-export default function PortfolioSummary({ pairs = [], trades = [], activeSymbol, onSymbolChange }) {
+export default function PortfolioSummary({ pairs = [], trades = [], balance, activeSymbol, onSymbolChange }) {
   if (!pairs.length) return null;
 
   const closed  = trades.filter(t => t.pnl != null);
@@ -56,6 +56,24 @@ export default function PortfolioSummary({ pairs = [], trades = [], activeSymbol
           </div>
         </Tile>
       </div>
+
+      {/* Balance row */}
+      {balance && (
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          {[
+            { label: 'Balance',   value: balance.total },
+            { label: 'Available', value: balance.free  },
+            { label: 'In Use',    value: balance.used  },
+          ].map(({ label, value }) => (
+            <Tile key={label} label={label}>
+              <div className="text-base font-semibold tabular-nums">
+                {value > 0 ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}{' '}
+                <span className="text-[11px] text-secondary font-normal">USDT</span>
+              </div>
+            </Tile>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-2">
         {pairs.map(p => {

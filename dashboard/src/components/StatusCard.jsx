@@ -127,24 +127,6 @@ export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolC
         </Tile>
       </div>
 
-      {/* Balance row */}
-      {status.balance && (
-        <div className="grid grid-cols-3 gap-3 mb-4">
-          {[
-            { label: 'Balance',   value: status.balance.total },
-            { label: 'Available', value: status.balance.free  },
-            { label: 'In Use',    value: status.balance.used  },
-          ].map(({ label, value }) => (
-            <Tile key={label} label={label}>
-              <div className="text-base font-semibold tabular-nums">
-                {value > 0 ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}{' '}
-                <span className="text-[11px] text-secondary font-normal">USDT</span>
-              </div>
-            </Tile>
-          ))}
-        </div>
-      )}
-
       <div className="text-[11px] uppercase tracking-wide text-secondary mb-1.5">CDC Zone Bar</div>
       <ZoneBar currentZone={cdc?.zone} />
     </div>
