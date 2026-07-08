@@ -70,6 +70,15 @@ export class StrategyService implements OnModuleInit {
       modes.map(m => this.settingsService.seedIfEmpty(m)),
     )).flat();
     await Promise.all(allSettings.map(s => this.reschedule(s.mode as TradingMode, s.symbol)));
+
+    // Warm-up: evaluate every pair once now so lastCDC is available right after
+    // boot instead of staying empty until the next candle-open cron fire.
+    // Fire-and-forget — exchange calls must not block application startup.
+    void Promise.all(allSettings.map(s =>
+      this.runForPair(s.mode as TradingMode, s.symbol).catch(err =>
+        this.logger.error(`[${s.mode}][${s.symbol}] warm-up run failed: ${err.message}`),
+      ),
+    ));
   }
 
   async reschedule(mode: TradingMode, symbol: string): Promise<void> {
