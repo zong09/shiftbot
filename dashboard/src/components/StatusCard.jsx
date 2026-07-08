@@ -2,7 +2,7 @@ import React from 'react';
 import ZoneBar from './ZoneBar.jsx';
 import { zoneByNumber } from '../theme.js';
 
-const SIGNAL_CLASS = { BUY: 'text-bull', SELL: 'text-bear', HOLD: 'text-secondary' };
+export const SIGNAL_CLASS = { BUY: 'text-bull', SELL: 'text-bear', HOLD: 'text-secondary' };
 
 const STATUS_CFG = {
   on:    { className: 'bg-bull/10 text-bull border-bull/30',  label: 'Running' },
@@ -27,7 +27,7 @@ function CtrlBtn({ label, tone, onClick }) {
   );
 }
 
-function Tile({ label, children, sub }) {
+export function Tile({ label, children, sub }) {
   return (
     <div className="bg-surface-alt border border-border rounded-lg p-3.5">
       <div className="text-[11px] uppercase tracking-wide text-secondary mb-1">{label}</div>

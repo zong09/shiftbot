@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import StatusCard   from './components/StatusCard.jsx';
+import PortfolioSummary from './components/PortfolioSummary.jsx';
 import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import PriceChart   from './components/PriceChart.jsx';
@@ -248,6 +249,12 @@ export default function App() {
         />
       ) : (
         <>
+          <PortfolioSummary
+            pairs={status?.pairs ?? []}
+            trades={trades}
+            activeSymbol={chartSymbol}
+            onSymbolChange={setChartSymbol}
+          />
           <StatusCard
             status={status}
             pairs={settings?.[mode] ?? []}
