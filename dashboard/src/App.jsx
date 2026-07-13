@@ -59,6 +59,7 @@ export default function App() {
   const [settings,       setSettings]       = useState(null);
   const [activeTab,      setActiveTab]      = useState('chart');
   const prevModeRef = useRef(null);
+  const prevSymbolRef = useRef(null);
   const loadSeqRef = useRef(0);
 
   // Listen to token expiration or 401 events from Axios interceptor
@@ -121,16 +122,28 @@ export default function App() {
     return () => clearInterval(tick);
   }, [lastFetch]);
 
-  // sync chart TF + symbol to first pair on mode change
+  // sync chart TF to the selected symbol's strategy timeframe on mode/symbol change
   useEffect(() => {
     const pairs = settings?.[mode];
-    const firstPair = Array.isArray(pairs) ? pairs[0] : null;
-    if (firstPair && prevModeRef.current !== mode) {
+    if (!Array.isArray(pairs) || pairs.length === 0) return;
+
+    // on mode change: jump to the first pair's symbol + its timeframe
+    if (prevModeRef.current !== mode) {
       prevModeRef.current = mode;
+      const firstPair = pairs[0];
+      prevSymbolRef.current = firstPair.symbol;
+      if (firstPair.symbol) setChartSymbol(firstPair.symbol);
       if (firstPair.timeframe) setChartTimeframe(firstPair.timeframe);
-      if (firstPair.symbol)    setChartSymbol(firstPair.symbol);
+      return;
     }
-  }, [mode, settings]);
+
+    // on symbol change: sync timeframe to that symbol's setting
+    if (prevSymbolRef.current !== chartSymbol) {
+      prevSymbolRef.current = chartSymbol;
+      const pair = pairs.find(p => p.symbol === chartSymbol);
+      if (pair?.timeframe) setChartTimeframe(pair.timeframe);
+    }
+  }, [mode, chartSymbol, settings]);
 
   const isSandbox = mode === 'sandbox';
   const firstPairStatus = settings?.[mode]?.[0]?.status ?? null;
