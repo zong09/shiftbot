@@ -302,7 +302,7 @@ export class TradingService {
     zone: CDCZone,
     reason: 'SIGNAL' | 'SL' | 'TP',
     mode: TradingMode,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const symbol = position.symbol;
 
     try {
@@ -338,8 +338,10 @@ export class TradingService {
       this.logger.log(
         `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
+      return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeLong error: ` + err.message);
+      return false;
     }
   }
 
@@ -427,7 +429,7 @@ export class TradingService {
     zone: CDCZone,
     reason: 'SIGNAL' | 'SL' | 'TP',
     mode: TradingMode,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const symbol = position.symbol;
 
     try {
@@ -463,8 +465,10 @@ export class TradingService {
       this.logger.log(
         `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
+      return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeShort error: ` + err.message);
+      return false;
     }
   }
 
