@@ -187,13 +187,22 @@ export class StrategyService implements OnModuleInit {
 
         // Close all Short positions
         const positions = await this.tradingService.getOpenPositions(mode, symbol);
+        let closeOk = true;
         for (const pos of positions) {
           if (pos.side === 'short') {
-            await this.tradingService.closeShort(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            const ok = await this.tradingService.closeShort(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            if (!ok) { closeOk = false; continue; }
             if (mode === 'live') {
               await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
             }
           }
+        }
+
+        // A failed close must not open the opposite side or advance lastZone —
+        // leave the signal live so the next candle retries the flip.
+        if (!closeOk) {
+          this.logger.warn(`[${mode}][${symbol}] close short ล้มเหลว — ข้ามเปิด long, retry แท่งถัดไป`);
+          return;
         }
 
         // Open Long — คืน null เมื่อชน maxPositions (ถือว่าจบ ไม่ retry)
@@ -213,13 +222,22 @@ export class StrategyService implements OnModuleInit {
 
         // Close all Long positions
         const positions = await this.tradingService.getOpenPositions(mode, symbol);
+        let closeOk = true;
         for (const pos of positions) {
           if (pos.side === 'long') {
-            await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            const ok = await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL', mode);
+            if (!ok) { closeOk = false; continue; }
             if (mode === 'live') {
               await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
             }
           }
+        }
+
+        // A failed close must not open the opposite side or advance lastZone —
+        // leave the signal live so the next candle retries the flip.
+        if (!closeOk) {
+          this.logger.warn(`[${mode}][${symbol}] close long ล้มเหลว — ข้ามเปิด short, retry แท่งถัดไป`);
+          return;
         }
 
         // Open Short — semantics เดียวกับ openLong ด้านบน: null = ชน maxPositions,
