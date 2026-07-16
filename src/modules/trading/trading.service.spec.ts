@@ -75,6 +75,7 @@ function makeFakeExchange() {
     createMarketSellOrder: jest.fn().mockResolvedValue({}),
     createOrder:           jest.fn().mockResolvedValue({ id: 'protective-1' }),
     cancelOrder:           jest.fn().mockResolvedValue(undefined),
+    fetchOpenOrders:       jest.fn().mockResolvedValue([]),
     marketId:              jest.fn((symbol: string) => symbol.replace('/', '').replace(':USDT', '')),
   };
 }
@@ -181,6 +182,69 @@ describe('TradingService', () => {
       const qb = tradeLogRepo.createQueryBuilder();
       qb.getRawOne.mockResolvedValue({ total: '123.45' });
       expect(await service.getTotalPnl('live')).toBe(123.45);
+    });
+  });
+
+  // ── sweepStaleProtectiveOrders() via openLong ─────────────────────────────
+
+  describe('stale protective order sweep on open', () => {
+    const SYMBOL = 'BTC/USDT:USDT';
+    const staleStop = { id: 'stale-sl', type: 'stop_market', side: 'sell', reduceOnly: true };
+    const staleTp   = { id: 'stale-tp', type: 'take_profit_market', side: 'sell', reduceOnly: true };
+    const entryOrder = { id: 'entry-1', type: 'market', side: 'buy', reduceOnly: false };
+
+    beforeEach(() => {
+      positionRepo.count.mockResolvedValue(0);
+    });
+
+    it('cancels reduceOnly conditional orders not tied to any open DB position', async () => {
+      exchange.fetchOpenOrders.mockResolvedValue([staleStop, staleTp]);
+      positionRepo.find.mockResolvedValue([]);
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', SYMBOL);
+
+      expect(exchange.cancelOrder).toHaveBeenCalledWith('stale-sl', SYMBOL);
+      expect(exchange.cancelOrder).toHaveBeenCalledWith('stale-tp', SYMBOL);
+    });
+
+    it('keeps orders whose ids belong to open positions in the DB', async () => {
+      exchange.fetchOpenOrders.mockResolvedValue([staleStop, staleTp]);
+      positionRepo.find.mockResolvedValue([
+        { id: 'p1', status: 'open', slOrderId: 'stale-sl', tpOrderId: 'stale-tp' },
+      ]);
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', SYMBOL);
+
+      expect(exchange.cancelOrder).not.toHaveBeenCalled();
+    });
+
+    it('does not cancel non-protective (entry) orders', async () => {
+      exchange.fetchOpenOrders.mockResolvedValue([entryOrder]);
+      positionRepo.find.mockResolvedValue([]);
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', SYMBOL);
+
+      expect(exchange.cancelOrder).not.toHaveBeenCalled();
+    });
+
+    it('still opens the position when the sweep itself fails', async () => {
+      exchange.fetchOpenOrders.mockRejectedValue(new Error('exchange down'));
+
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', SYMBOL);
+
+      expect(result).not.toBeNull();
+      expect(exchange.createMarketBuyOrder).toHaveBeenCalled();
+    });
+
+    it('still opens the position when cancelling a stale order fails', async () => {
+      exchange.fetchOpenOrders.mockResolvedValue([staleStop]);
+      positionRepo.find.mockResolvedValue([]);
+      exchange.cancelOrder.mockRejectedValue(new Error('-2011 Unknown order sent'));
+
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', SYMBOL);
+
+      expect(result).not.toBeNull();
+      expect(exchange.createMarketBuyOrder).toHaveBeenCalled();
     });
   });
 
