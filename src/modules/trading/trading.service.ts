@@ -183,10 +183,57 @@ export class TradingService {
       try {
         await exchange.cancelOrder(orderId, position.symbol);
       } catch (err) {
-        this.logger.debug(
-          `[${mode}][${position.symbol}] cancel protective order ${orderId}: ${err.message}`,
+        // warn — not debug: a failed cancel leaves a live reduceOnly order that
+        // can close a future position at a stale trigger price
+        this.logger.warn(
+          `[${mode}][${position.symbol}] cancel protective order ${orderId} ไม่สำเร็จ: ${err.message}`,
         );
       }
+    }
+  }
+
+  /**
+   * Cancel stale reduceOnly SL/TP orders for a symbol that are no longer tied to
+   * any open position in the DB. Stale orders accumulate when a close-path cancel
+   * fails silently; once the price touches their trigger they market-close the
+   * CURRENT position (see BTC 2026-07-15: a stale TP dumped a live long).
+   * Called before opening a new position. Failures never block the entry.
+   */
+  private async sweepStaleProtectiveOrders(
+    exchange: Exchange,
+    symbol: string,
+    mode: TradingMode,
+  ): Promise<void> {
+    try {
+      const openOrders = await exchange.fetchOpenOrders(symbol);
+      if (!openOrders.length) return;
+
+      const positions = await this.positionRepo.find({ where: { status: 'open', mode, symbol } });
+      const keep = new Set(
+        positions.flatMap((p) => [p.slOrderId, p.tpOrderId]).filter(Boolean),
+      );
+
+      for (const order of openOrders) {
+        const type = (order.type ?? '').toLowerCase().replace(/[_\s]/g, '');
+        const isProtective =
+          order.reduceOnly === true ||
+          type === 'stopmarket' || type === 'takeprofitmarket' ||
+          type === 'stop' || type === 'takeprofit';
+        if (!isProtective || keep.has(order.id)) continue;
+
+        try {
+          await exchange.cancelOrder(order.id, symbol);
+          this.logger.warn(
+            `[${mode}][${symbol}] ยกเลิก stale protective order ${order.id} (${order.type} ${order.side})`,
+          );
+        } catch (err) {
+          this.logger.warn(
+            `[${mode}][${symbol}] cancel stale order ${order.id} ไม่สำเร็จ: ${err.message}`,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`[${mode}][${symbol}] sweepStaleProtectiveOrders ไม่สำเร็จ: ${err.message}`);
     }
   }
 
@@ -235,6 +282,9 @@ export class TradingService {
       const quantity = await this.toOrderAmount(
         exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
       );
+
+      // กวาด SL/TP ค้างจาก position เก่าก่อนเปิดไม้ใหม่ — กัน order ผี trigger มาปิดไม้นี้
+      await this.sweepStaleProtectiveOrders(exchange, symbol, mode);
 
       let entryPrice = currentPrice;
       let orderId: string | undefined;
@@ -362,6 +412,9 @@ export class TradingService {
       const quantity = await this.toOrderAmount(
         exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
       );
+
+      // กวาด SL/TP ค้างจาก position เก่าก่อนเปิดไม้ใหม่ — กัน order ผี trigger มาปิดไม้นี้
+      await this.sweepStaleProtectiveOrders(exchange, symbol, mode);
 
       let entryPrice = currentPrice;
       let orderId: string | undefined;
