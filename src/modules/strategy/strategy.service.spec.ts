@@ -170,6 +170,18 @@ describe('StrategyService', () => {
       expect(liveNotifyCalls).toHaveLength(1);
     });
 
+    it('sends the BUY notification once across repeated runs of the same transition', async () => {
+      const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
+      await buildModule(result);
+      await service.runStrategy();
+      await service.runStrategy();
+      const liveBuyNotifies = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
+        (args) => args[0] === 'BUY',
+      );
+      // one per mode (live only) — NOT doubled by the second run
+      expect(liveBuyNotifies).toHaveLength(1);
+    });
+
     it('still calls openLong on BUY — maxPositions is enforced inside TradingService', async () => {
       const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
       await buildModule(result);

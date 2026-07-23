@@ -13,6 +13,10 @@ interface PairContext {
   lastZone: CDCZone | undefined;
   lastResult: CDCResult | null;
   isRunning: boolean;
+  // Transition already notified (`signal->zone`). A failed close leaves lastZone
+  // un-advanced so the signal retries next candle; without this the alert re-fires
+  // every retry. Reset to null on HOLD.
+  lastNotifiedSignalKey: string | null;
 }
 
 const TIMEFRAME_CRON: Record<string, string> = {
@@ -83,7 +87,7 @@ export class StrategyService implements OnModuleInit {
     }
 
     if (!this.contexts.has(ctxKey(mode, symbol))) {
-      this.contexts.set(ctxKey(mode, symbol), { lastZone: undefined, lastResult: null, isRunning: false });
+      this.contexts.set(ctxKey(mode, symbol), { lastZone: undefined, lastResult: null, isRunning: false, lastNotifiedSignalKey: null });
     }
 
     const job = new CronJob(cronExpr, () => {
@@ -114,7 +118,7 @@ export class StrategyService implements OnModuleInit {
   private async runForPair(mode: TradingMode, symbol: string): Promise<void> {
     const key = ctxKey(mode, symbol);
     if (!this.contexts.has(key)) {
-      this.contexts.set(key, { lastZone: undefined, lastResult: null, isRunning: false });
+      this.contexts.set(key, { lastZone: undefined, lastResult: null, isRunning: false, lastNotifiedSignalKey: null });
     }
     const ctx = this.contexts.get(key)!;
 
@@ -181,11 +185,17 @@ export class StrategyService implements OnModuleInit {
         return;
       }
 
+      // Dedup key for the current transition — set once we've notified, so a
+      // close-retry on the next candle (lastZone intentionally un-advanced) does
+      // not re-send the same alert.
+      const signalKey = `${result.signal}->${result.zone}`;
+
       if (result.signal === 'BUY') {
         this.logger.log(`[${mode}][${symbol}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live') {
+        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
           await this.notificationService.sendSignal('BUY', result, currentPrice);
+          ctx.lastNotifiedSignalKey = signalKey;
         }
 
         // Close all Short positions
@@ -216,8 +226,9 @@ export class StrategyService implements OnModuleInit {
       } else if (result.signal === 'SELL') {
         this.logger.log(`[${mode}][${symbol}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live') {
+        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
           await this.notificationService.sendSignal('SELL', result, currentPrice);
+          ctx.lastNotifiedSignalKey = signalKey;
         }
 
         // Close all Long positions
@@ -246,6 +257,7 @@ export class StrategyService implements OnModuleInit {
 
       } else {
         this.logger.log(`[${mode}][${symbol}] ⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
+        ctx.lastNotifiedSignalKey = null;
       }
 
       ctx.lastZone = result.zone;
