@@ -47,7 +47,7 @@ function makePositionRepo() {
     find:   jest.fn(),
     create: jest.fn((dto) => dto),
     save:   jest.fn((entity) => Promise.resolve({ id: 'pos-saved', ...entity })),
-    update: jest.fn().mockResolvedValue(undefined),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
   };
 }
 
@@ -407,8 +407,10 @@ describe('TradingService', () => {
     it('computes pnl as (currentPrice - entryPrice) * quantity', async () => {
       const pos = makeOpenPosition({ entryPrice: 50_000, quantity: 0.02 });
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'sandbox');
-      const updateArg = (positionRepo.update as jest.Mock).mock.calls[0][1];
-      expect(updateArg.closedPnl).toBeCloseTo(20, 5);
+      const closedUpdate = (positionRepo.update as jest.Mock).mock.calls.find(
+        ([, patch]) => patch?.status === 'closed',
+      );
+      expect(closedUpdate[1].closedPnl).toBeCloseTo(20, 5);
     });
 
     it('writes a CLOSE_LONG trade log entry when reason is SIGNAL', async () => {
@@ -443,8 +445,23 @@ describe('TradingService', () => {
     it('computes negative pnl correctly when price is below entry', async () => {
       const pos = makeOpenPosition({ entryPrice: 50_000, quantity: 0.01 });
       await service.closeLong(pos, 49_000, CDCZone.BEAR, 'SL', 'sandbox');
-      const updateArg = (positionRepo.update as jest.Mock).mock.calls[0][1];
-      expect(updateArg.closedPnl).toBeCloseTo(-10, 5);
+      const closedUpdate = (positionRepo.update as jest.Mock).mock.calls.find(
+        ([, patch]) => patch?.status === 'closed',
+      );
+      expect(closedUpdate[1].closedPnl).toBeCloseTo(-10, 5);
+    });
+
+    it('uses the close-order fill price (order.average) for pnl, not the currentPrice arg', async () => {
+      // real fill 50_900 differs from the 51_000 currentPrice passed in (slippage)
+      exchange.createMarketSellOrder.mockResolvedValue({ average: 50_900 });
+      const pos = makeOpenPosition({ entryPrice: 50_000, quantity: 0.02 });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'sandbox');
+      const closedUpdate = (positionRepo.update as jest.Mock).mock.calls.find(
+        ([, patch]) => patch?.status === 'closed',
+      );
+      expect(closedUpdate[1].closedPnl).toBeCloseTo((50_900 - 50_000) * 0.02, 5);
+      const logArg = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
+      expect(logArg.price).toBe(50_900);
     });
   });
 
@@ -461,11 +478,30 @@ describe('TradingService', () => {
       );
     });
 
-    it('still updates the position and writes a trade log even after exchange error', async () => {
+    it('leaves SL/TP intact and rolls the claim back when the close order fails', async () => {
       exchange.createMarketSellOrder.mockRejectedValue(new Error('exchange down'));
+      const pos = makeOpenPosition({ mode: 'live', slOrderId: 'sl-1', tpOrderId: 'tp-1' });
+      const ok = await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
+
+      expect(ok).toBe(false);
+      // T1 invariant: protective orders must NOT be cancelled on a failed close
+      expect(exchange.cancelOrder).not.toHaveBeenCalled();
+      // no phantom close recorded
+      expect(tradeLogRepo.save).not.toHaveBeenCalled();
+      // claim rolled back to 'open' so the next signal retries
+      expect(positionRepo.update).toHaveBeenCalledWith(
+        { id: 'pos-1', status: 'closing' },
+        { status: 'open' },
+      );
+    });
+
+    it('returns false without touching the exchange when the position is already being closed', async () => {
+      positionRepo.update.mockResolvedValueOnce({ affected: 0 }); // claim loses the race
       const pos = makeOpenPosition({ mode: 'live' });
-      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
-      expect(positionRepo.update).not.toHaveBeenCalled();
+      const ok = await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
+
+      expect(ok).toBe(false);
+      expect(exchange.createMarketSellOrder).not.toHaveBeenCalled();
       expect(tradeLogRepo.save).not.toHaveBeenCalled();
     });
   });
@@ -498,10 +534,12 @@ describe('TradingService', () => {
       expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'MANUAL', 51_000);
     });
 
-    it('notifies on closeShort in live mode', async () => {
+    it('notifies on closeShort in live mode with the exchange fill price', async () => {
+      // createMarketBuyOrder mock fills at 50_100 (order.average) — T3 uses the real
+      // fill price, not the currentPrice argument
       const pos = makeOpenPosition({ side: 'short', mode: 'live' });
       await service.closeShort(pos, 49_000, CDCZone.BULL, 'TP', 'live');
-      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'TP', 49_000);
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'TP', 50_100);
     });
 
     it('does NOT notify when the close fails on-exchange', async () => {
@@ -526,6 +564,35 @@ describe('TradingService', () => {
       positionRepo.find.mockResolvedValue([pos]);
       await service.syncPositions('sandbox', 'BTC/USDT:USDT');
       expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── syncPositions() concurrency guard ─────────────────────────────────────
+
+  describe('syncPositions() single-flight', () => {
+    it('does not record the close when the atomic claim is lost to a concurrent sync', async () => {
+      const pos = makeOpenPosition({ mode: 'live', entryPrice: 50_000, quantity: 0.01 });
+      positionRepo.find.mockResolvedValue([pos]);
+      // remote reports the position flat, but another sync already claimed the close
+      positionRepo.update.mockResolvedValue({ affected: 0 });
+
+      await service.syncPositions('live', 'BTC/USDT:USDT');
+
+      expect(tradeLogRepo.save).not.toHaveBeenCalled();
+      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── boot reaper (onApplicationBootstrap) ──────────────────────────────────
+
+  describe('onApplicationBootstrap()', () => {
+    it("reverts stranded 'closing' rows back to 'open' for reconciliation", async () => {
+      positionRepo.update.mockResolvedValue({ affected: 2 });
+      await service.onApplicationBootstrap();
+      expect(positionRepo.update).toHaveBeenCalledWith(
+        { status: 'closing' },
+        { status: 'open' },
+      );
     });
   });
 

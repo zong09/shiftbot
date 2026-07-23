@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, BadGatewayException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, BadGatewayException, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -12,8 +12,25 @@ export type TradingMode = 'live' | 'sandbox';
 type Exchange = ReturnType<MarketDataService['getExchange']>;
 
 @Injectable()
-export class TradingService {
+export class TradingService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TradingService.name);
+
+  /**
+   * A close claims its position by flipping 'open' → 'closing' before touching the
+   * exchange. If the process dies mid-close, the row is stranded in 'closing':
+   * syncPositions only reconciles 'open' rows, so it would never be finalized.
+   * At boot there are no in-flight closes, so any 'closing' row is stale — revert it
+   * to 'open' and let the next syncPositions reconcile it against the exchange.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    const reverted = await this.positionRepo.update(
+      { status: 'closing' },
+      { status: 'open' },
+    );
+    if (reverted.affected) {
+      this.logger.warn(`[boot] คืนสถานะ ${reverted.affected} position ที่ค้าง 'closing' → 'open' เพื่อ reconcile`);
+    }
+  }
 
   constructor(
     @InjectRepository(PositionEntity)
@@ -356,15 +373,41 @@ export class TradingService {
     mode: TradingMode,
   ): Promise<boolean> {
     const symbol = position.symbol;
+    const exchange = this.marketDataService.getExchange(mode);
 
+    // Single-flight: atomically claim the position so a concurrent cron close and
+    // a manual/API close can't both submit orders + write duplicate trade logs.
+    const claim = await this.positionRepo.update(
+      { id: position.id, status: 'open' },
+      { status: 'closing' },
+    );
+    if (!claim.affected) {
+      this.logger.warn(`[${mode}][${symbol}] position ${position.id} กำลังถูกปิดโดย path อื่น — ข้าม`);
+      return false;
+    }
+
+    // Market-close FIRST, then cancel SL/TP. If the close order throws, the native
+    // protective orders are still live on the exchange — roll the claim back so the
+    // next signal retries instead of leaving an unprotected position.
+    let exitPrice: number;
     try {
-      const exchange = this.marketDataService.getExchange(mode);
-      await this.cancelProtectiveOrders(exchange, position, mode);
-      await exchange.createMarketSellOrder(symbol, position.quantity, {
+      const order = await exchange.createMarketSellOrder(symbol, position.quantity, {
         reduceOnly: true,
       });
+      exitPrice = order.average ?? currentPrice;
+    } catch (err) {
+      this.logger.error(`[${mode}][${symbol}] closeLong error: ` + err.message);
+      await this.positionRepo.update({ id: position.id, status: 'closing' }, { status: 'open' });
+      return false;
+    }
 
-      const pnl       = (currentPrice - position.entryPrice) * position.quantity;
+    // The position is now flat on-exchange. A bookkeeping failure past this point must
+    // NOT revert to 'open' (that would churn reduceOnly-rejected orders); the stale
+    // 'closing' row is reconciled by syncPositions/the boot reaper instead.
+    try {
+      await this.cancelProtectiveOrders(exchange, position, mode);
+
+      const pnl       = (exitPrice - position.entryPrice) * position.quantity;
       const closeTime = new Date();
 
       await this.positionRepo.update(position.id, {
@@ -379,7 +422,7 @@ export class TradingService {
         this.tradeLogRepo.create({
           symbol,
           action,
-          price:    currentPrice,
+          price:    exitPrice,
           quantity: position.quantity,
           pnl,
           zone,
@@ -389,15 +432,15 @@ export class TradingService {
       );
 
       this.logger.log(
-        `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
+        `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${exitPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
 
       if (mode === 'live') {
-        await this.notificationService.sendClosePosition(position, reason, currentPrice);
+        await this.notificationService.sendClosePosition(position, reason, exitPrice);
       }
       return true;
     } catch (err) {
-      this.logger.error(`[${mode}][${symbol}] closeLong error: ` + err.message);
+      this.logger.error(`[${mode}][${symbol}] closeLong bookkeeping error: ` + err.message);
       return false;
     }
   }
@@ -491,15 +534,41 @@ export class TradingService {
     mode: TradingMode,
   ): Promise<boolean> {
     const symbol = position.symbol;
+    const exchange = this.marketDataService.getExchange(mode);
 
+    // Single-flight: atomically claim the position so a concurrent cron close and
+    // a manual/API close can't both submit orders + write duplicate trade logs.
+    const claim = await this.positionRepo.update(
+      { id: position.id, status: 'open' },
+      { status: 'closing' },
+    );
+    if (!claim.affected) {
+      this.logger.warn(`[${mode}][${symbol}] position ${position.id} กำลังถูกปิดโดย path อื่น — ข้าม`);
+      return false;
+    }
+
+    // Market-close FIRST, then cancel SL/TP. If the close order throws, the native
+    // protective orders are still live on the exchange — roll the claim back so the
+    // next signal retries instead of leaving an unprotected position.
+    let exitPrice: number;
     try {
-      const exchange = this.marketDataService.getExchange(mode);
-      await this.cancelProtectiveOrders(exchange, position, mode);
-      await exchange.createMarketBuyOrder(symbol, position.quantity, {
+      const order = await exchange.createMarketBuyOrder(symbol, position.quantity, {
         reduceOnly: true,
       });
+      exitPrice = order.average ?? currentPrice;
+    } catch (err) {
+      this.logger.error(`[${mode}][${symbol}] closeShort error: ` + err.message);
+      await this.positionRepo.update({ id: position.id, status: 'closing' }, { status: 'open' });
+      return false;
+    }
 
-      const pnl       = (position.entryPrice - currentPrice) * position.quantity;
+    // The position is now flat on-exchange. A bookkeeping failure past this point must
+    // NOT revert to 'open' (that would churn reduceOnly-rejected orders); the stale
+    // 'closing' row is reconciled by syncPositions/the boot reaper instead.
+    try {
+      await this.cancelProtectiveOrders(exchange, position, mode);
+
+      const pnl       = (position.entryPrice - exitPrice) * position.quantity;
       const closeTime = new Date();
 
       await this.positionRepo.update(position.id, {
@@ -514,7 +583,7 @@ export class TradingService {
         this.tradeLogRepo.create({
           symbol,
           action,
-          price:    currentPrice,
+          price:    exitPrice,
           quantity: position.quantity,
           pnl,
           zone,
@@ -524,15 +593,15 @@ export class TradingService {
       );
 
       this.logger.log(
-        `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
+        `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${exitPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
 
       if (mode === 'live') {
-        await this.notificationService.sendClosePosition(position, reason, currentPrice);
+        await this.notificationService.sendClosePosition(position, reason, exitPrice);
       }
       return true;
     } catch (err) {
-      this.logger.error(`[${mode}][${symbol}] closeShort error: ` + err.message);
+      this.logger.error(`[${mode}][${symbol}] closeShort bookkeeping error: ` + err.message);
       return false;
     }
   }
@@ -612,6 +681,15 @@ export class TradingService {
         const isClosed = !remotePos || !remotePos.contracts || remotePos.contracts === 0;
         
         if (isClosed) {
+          // Atomically claim the close so overlapping syncs (cron + every dashboard
+          // /status poll) can't both record it — otherwise the SYNC_CLOSE trade log
+          // is written twice and PnL is counted twice in getTotalPnl.
+          const claim = await this.positionRepo.update(
+            { id: localPos.id, status: 'open' },
+            { status: 'closed', closeTime: new Date() },
+          );
+          if (!claim.affected) continue; // another concurrent sync already handled this position
+
           this.logger.warn(`[${mode}][${localPos.symbol}] Position ${localPos.side} is actually closed on Binance. Updating DB to sync...`);
 
           // The close happened on-exchange (SL/TP filled or manual) — cancel the surviving sibling order
@@ -640,8 +718,6 @@ export class TradingService {
           }
 
           await this.positionRepo.update(localPos.id, {
-            status: 'closed',
-            closeTime: new Date(),
             closedPnl: pnl,
           });
 
