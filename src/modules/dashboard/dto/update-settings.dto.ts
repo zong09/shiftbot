@@ -40,7 +40,9 @@ export class UpdateSettingsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(10)
+  // one-way futures nets same-side legs into one exchange position, so >1 breaks
+  // syncPositions leg tracking (a filled leg's DB row never gets marked closed)
+  @Max(1)
   maxPositions?: number;
 
   @IsOptional()

@@ -135,13 +135,15 @@ export class StrategyService implements OnModuleInit {
     try {
       const s = await this.settingsService.getSettings(mode, symbol);
 
+      // Sync positions with Binance to ensure DB consistency. Runs even when
+      // status=off so exchange-side closes (SL/TP fills, manual) on a paused/off
+      // pair are still reconciled into the DB.
+      await this.tradingService.syncPositions(mode, symbol);
+
       if (s.status === 'off') {
         this.logger.debug(`[${mode}][${symbol}] status=off — skipped`);
         return;
       }
-
-      // 1. Sync positions with Binance to ensure DB consistency
-      await this.tradingService.syncPositions(mode, symbol);
 
       this.logger.log(`=== [${mode}][${symbol}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
 
@@ -160,7 +162,16 @@ export class StrategyService implements OnModuleInit {
       // instead of being swallowed by the first HOLD.
       if (ctx.lastZone === undefined && confirmed.length > 1) {
         const prev = this.cdcService.calculate(confirmed.slice(0, -1), undefined, s.emaFast, s.emaSlow);
-        if (prev) ctx.lastZone = prev.zone;
+        if (prev) {
+          ctx.lastZone = prev.zone;
+        } else {
+          // Reconstruction needs emaSlow+2 candles; at the bare minimum the sliced
+          // series is one short and returns null, so the first post-restart transition
+          // would be swallowed as HOLD. Surface it instead of failing silently.
+          this.logger.warn(
+            `[${mode}][${symbol}] candle ไม่พอ reconstruct lastZone (${confirmed.length - 1} แท่ง) — สัญญาณแรกหลัง restart อาจเป็น HOLD`,
+          );
+        }
       }
 
       const result = this.cdcService.calculate(confirmed, ctx.lastZone, s.emaFast, s.emaSlow);

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, DefaultValuePipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, NotFoundException, DefaultValuePipe, UseGuards } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -208,6 +208,13 @@ export class DashboardController {
     @Body() body: UpdateSettingsDto,
   ) {
     const { symbol, ...fields } = body;
+
+    // Reject unknown pairs up front — before any getSettings call, which would
+    // otherwise auto-create a phantom row. Pairs are created only via addPair.
+    const exists = (await this.settingsService.getAllSettings(mode)).some(p => p.symbol === symbol);
+    if (!exists) {
+      throw new NotFoundException(`no settings for ${mode}/${symbol} — add the pair first`);
+    }
 
     if (fields.emaFast !== undefined || fields.emaSlow !== undefined) {
       const current = await this.settingsService.getSettings(mode, symbol);

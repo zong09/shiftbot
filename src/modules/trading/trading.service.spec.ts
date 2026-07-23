@@ -94,6 +94,7 @@ function makeNotificationService(): jest.Mocked<Partial<NotificationService>> {
   return {
     sendOpenPosition:  jest.fn().mockResolvedValue(undefined),
     sendClosePosition: jest.fn().mockResolvedValue(undefined),
+    sendError:         jest.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -580,6 +581,39 @@ describe('TradingService', () => {
 
       expect(tradeLogRepo.save).not.toHaveBeenCalled();
       expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── placeProtectiveOrders() via openLong — partial-failure alert ──────────
+
+  describe('protective order placement', () => {
+    beforeEach(() => {
+      positionRepo.count.mockResolvedValue(0);
+      // skip the real 2s retry backoff
+      jest.spyOn(service as any, 'sleep').mockResolvedValue(undefined);
+    });
+
+    it('alerts on a failed SL in live mode after retrying, and still opens the position', async () => {
+      // SL createOrder rejects both attempts; TP succeeds
+      exchange.createOrder
+        .mockRejectedValueOnce(new Error('blip'))
+        .mockRejectedValueOnce(new Error('blip'))
+        .mockResolvedValue({ id: 'tp-1' });
+
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+
+      expect(result).not.toBeNull();
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.slOrderId).toBeNull();
+      expect(savedPos.tpOrderId).toBe('tp-1');
+      expect(notificationService.sendError).toHaveBeenCalledTimes(1);
+      expect((notificationService.sendError as jest.Mock).mock.calls[0][0]).toMatch(/SL/);
+    });
+
+    it('does not alert when both protective orders are placed', async () => {
+      exchange.createOrder.mockResolvedValue({ id: 'ok' });
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+      expect(notificationService.sendError).not.toHaveBeenCalled();
     });
   });
 

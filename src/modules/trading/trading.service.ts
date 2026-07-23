@@ -151,6 +151,12 @@ export class TradingService implements OnApplicationBootstrap {
    * SL/TP trigger even while the bot is down. Failures are logged but do not
    * roll back the entry — the position simply has no exchange-side protection.
    */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private static readonly PROTECTIVE_RETRY_MS = 2000;
+
   private async placeProtectiveOrders(
     exchange: Exchange,
     symbol: string,
@@ -161,30 +167,33 @@ export class TradingService implements OnApplicationBootstrap {
     mode: TradingMode,
   ): Promise<{ slOrderId: string | null; tpOrderId: string | null }> {
     const closeSide = side === 'long' ? 'sell' : 'buy';
-    let slOrderId: string | null = null;
-    let tpOrderId: string | null = null;
 
-    try {
-      const sl = await exchange.createOrder(symbol, 'market', closeSide, quantity, undefined, {
-        stopLossPrice: exchange.priceToPrecision(symbol, stopLoss),
-        reduceOnly: true,
-      });
-      slOrderId = sl.id ?? null;
-    } catch (err) {
-      this.logger.error(
-        `[${mode}][${symbol}] วาง STOP_MARKET ไม่สำเร็จ: ${err.message} — position นี้ไม่มี SL บน exchange`,
-      );
-    }
+    // Place one protective order, retrying once to ride out a transient blip.
+    const place = async (label: 'SL' | 'TP', params: Record<string, unknown>): Promise<string | null> => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const order = await exchange.createOrder(symbol, 'market', closeSide, quantity, undefined, {
+            ...params,
+            reduceOnly: true,
+          });
+          return order.id ?? null;
+        } catch (err) {
+          this.logger.error(`[${mode}][${symbol}] วาง ${label} ครั้งที่ ${attempt} ไม่สำเร็จ: ${err.message}`);
+          if (attempt < 2) await this.sleep(TradingService.PROTECTIVE_RETRY_MS);
+        }
+      }
+      return null;
+    };
 
-    try {
-      const tp = await exchange.createOrder(symbol, 'market', closeSide, quantity, undefined, {
-        takeProfitPrice: exchange.priceToPrecision(symbol, takeProfit),
-        reduceOnly: true,
-      });
-      tpOrderId = tp.id ?? null;
-    } catch (err) {
-      this.logger.error(
-        `[${mode}][${symbol}] วาง TAKE_PROFIT_MARKET ไม่สำเร็จ: ${err.message} — position นี้ไม่มี TP บน exchange`,
+    const slOrderId = await place('SL', { stopLossPrice: exchange.priceToPrecision(symbol, stopLoss) });
+    const tpOrderId = await place('TP', { takeProfitPrice: exchange.priceToPrecision(symbol, takeProfit) });
+
+    // A leveraged position with one-sided (or no) protection must not sit silently —
+    // alert the operator to intervene rather than only logging.
+    if (mode === 'live' && (!slOrderId || !tpOrderId)) {
+      const missing = [!slOrderId && 'SL', !tpOrderId && 'TP'].filter(Boolean).join(' + ');
+      await this.notificationService.sendError(
+        `${symbol}: วาง protective order ${missing} ไม่สำเร็จหลัง retry — position อาจไม่มี ${missing} บน exchange`,
       );
     }
 
