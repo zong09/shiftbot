@@ -692,10 +692,13 @@ export class TradingService implements OnApplicationBootstrap {
         if (isClosed) {
           // Atomically claim the close so overlapping syncs (cron + every dashboard
           // /status poll) can't both record it — otherwise the SYNC_CLOSE trade log
-          // is written twice and PnL is counted twice in getTotalPnl.
+          // is written twice and PnL is counted twice in getTotalPnl. Claim to
+          // 'closing' (not straight to 'closed'): if the pnl fetch or ledger write
+          // below throws, the row stays 'closing' for the boot reaper to revert and a
+          // later sync to re-record, rather than becoming 'closed' with no ledger entry.
           const claim = await this.positionRepo.update(
             { id: localPos.id, status: 'open' },
-            { status: 'closed', closeTime: new Date() },
+            { status: 'closing' },
           );
           if (!claim.affected) continue; // another concurrent sync already handled this position
 
@@ -727,6 +730,8 @@ export class TradingService implements OnApplicationBootstrap {
           }
 
           await this.positionRepo.update(localPos.id, {
+            status: 'closed',
+            closeTime: new Date(),
             closedPnl: pnl,
           });
 
