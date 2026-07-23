@@ -43,6 +43,20 @@ function PairForm({ pair, mode, onSave, onRemove }) {
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
   const handleSave = async () => {
+    // Clearing a numeric field makes Number('') === 0, which the backend rejects
+    // with a raw 400 — validate here so the user gets a clear inline message.
+    const numFields = ['leverage', 'orderSizeUsdt', 'maxPositions', 'stopLossPct', 'takeProfitPct', 'emaFast', 'emaSlow'];
+    for (const k of numFields) {
+      if (!Number.isFinite(form[k]) || form[k] <= 0) {
+        setMsg({ type: 'err', text: `${k} ต้องเป็นตัวเลขมากกว่า 0` });
+        return;
+      }
+    }
+    if (form.emaFast >= form.emaSlow) {
+      setMsg({ type: 'err', text: 'emaFast ต้องน้อยกว่า emaSlow' });
+      return;
+    }
+
     setSaving(true); setMsg(null);
     try {
       await onSave(mode, pair.symbol, form);
@@ -101,7 +115,7 @@ function PairForm({ pair, mode, onSave, onRemove }) {
               <input type="number" min={1} className={FIELD_CLASS} value={form.orderSizeUsdt} onChange={e => set('orderSizeUsdt', Number(e.target.value))} />
             </Field>
             <Field label="Max Positions">
-              <input type="number" min={1} max={10} className={FIELD_CLASS} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
+              <input type="number" min={1} max={1} className={FIELD_CLASS} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
             </Field>
 
             <Field label="EMA Fast">

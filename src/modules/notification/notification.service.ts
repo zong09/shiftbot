@@ -68,7 +68,11 @@ export class NotificationService {
   }
 
   async sendError(message: string): Promise<void> {
-    await this.send(`⚠️ *Bot Error*\n${message}`);
+    // Exchange errors routinely contain *, _, [ — with parse_mode:'Markdown' Telegram
+    // rejects an unbalanced message with 400 and the alert is silently lost. Strip the
+    // Markdown-significant characters from the (untrusted) error text before sending.
+    const safe = message.replace(/[*_[\]`]/g, '');
+    await this.send(`⚠️ *Bot Error*\n${safe}`);
   }
 
   // ──────────────────────────────────────────────

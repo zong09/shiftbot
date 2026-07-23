@@ -7,11 +7,16 @@ import { TradingService, TradingMode } from '../trading/trading.service';
 import { NotificationService } from '../notification/notification.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { CDCZone, CDCResult } from '../../common/types';
+import { TIMEFRAME_MS } from '../../common/timeframes';
 
 interface PairContext {
   lastZone: CDCZone | undefined;
   lastResult: CDCResult | null;
   isRunning: boolean;
+  // Transition already notified (`signal->zone`). A failed close leaves lastZone
+  // un-advanced so the signal retries next candle; without this the alert re-fires
+  // every retry. Reset to null on HOLD.
+  lastNotifiedSignalKey: string | null;
 }
 
 const TIMEFRAME_CRON: Record<string, string> = {
@@ -21,15 +26,6 @@ const TIMEFRAME_CRON: Record<string, string> = {
   '1h':  '0 * * * *',
   '4h':  '0 */4 * * *',
   '1d':  '0 0 * * *',
-};
-
-const TIMEFRAME_MS: Record<string, number> = {
-  '1m':  60_000,
-  '5m':  300_000,
-  '15m': 900_000,
-  '1h':  3_600_000,
-  '4h':  14_400_000,
-  '1d':  86_400_000,
 };
 
 function timeframeToCron(timeframe: string): string {
@@ -91,7 +87,7 @@ export class StrategyService implements OnModuleInit {
     }
 
     if (!this.contexts.has(ctxKey(mode, symbol))) {
-      this.contexts.set(ctxKey(mode, symbol), { lastZone: undefined, lastResult: null, isRunning: false });
+      this.contexts.set(ctxKey(mode, symbol), { lastZone: undefined, lastResult: null, isRunning: false, lastNotifiedSignalKey: null });
     }
 
     const job = new CronJob(cronExpr, () => {
@@ -122,7 +118,7 @@ export class StrategyService implements OnModuleInit {
   private async runForPair(mode: TradingMode, symbol: string): Promise<void> {
     const key = ctxKey(mode, symbol);
     if (!this.contexts.has(key)) {
-      this.contexts.set(key, { lastZone: undefined, lastResult: null, isRunning: false });
+      this.contexts.set(key, { lastZone: undefined, lastResult: null, isRunning: false, lastNotifiedSignalKey: null });
     }
     const ctx = this.contexts.get(key)!;
 
@@ -135,13 +131,15 @@ export class StrategyService implements OnModuleInit {
     try {
       const s = await this.settingsService.getSettings(mode, symbol);
 
+      // Sync positions with Binance to ensure DB consistency. Runs even when
+      // status=off so exchange-side closes (SL/TP fills, manual) on a paused/off
+      // pair are still reconciled into the DB.
+      await this.tradingService.syncPositions(mode, symbol);
+
       if (s.status === 'off') {
         this.logger.debug(`[${mode}][${symbol}] status=off — skipped`);
         return;
       }
-
-      // 1. Sync positions with Binance to ensure DB consistency
-      await this.tradingService.syncPositions(mode, symbol);
 
       this.logger.log(`=== [${mode}][${symbol}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
 
@@ -160,7 +158,16 @@ export class StrategyService implements OnModuleInit {
       // instead of being swallowed by the first HOLD.
       if (ctx.lastZone === undefined && confirmed.length > 1) {
         const prev = this.cdcService.calculate(confirmed.slice(0, -1), undefined, s.emaFast, s.emaSlow);
-        if (prev) ctx.lastZone = prev.zone;
+        if (prev) {
+          ctx.lastZone = prev.zone;
+        } else {
+          // Reconstruction needs emaSlow+2 candles; at the bare minimum the sliced
+          // series is one short and returns null, so the first post-restart transition
+          // would be swallowed as HOLD. Surface it instead of failing silently.
+          this.logger.warn(
+            `[${mode}][${symbol}] candle ไม่พอ reconstruct lastZone (${confirmed.length - 1} แท่ง) — สัญญาณแรกหลัง restart อาจเป็น HOLD`,
+          );
+        }
       }
 
       const result = this.cdcService.calculate(confirmed, ctx.lastZone, s.emaFast, s.emaSlow);
@@ -178,11 +185,17 @@ export class StrategyService implements OnModuleInit {
         return;
       }
 
+      // Dedup key for the current transition — set once we've notified, so a
+      // close-retry on the next candle (lastZone intentionally un-advanced) does
+      // not re-send the same alert.
+      const signalKey = `${result.signal}->${result.zone}`;
+
       if (result.signal === 'BUY') {
         this.logger.log(`[${mode}][${symbol}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live') {
+        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
           await this.notificationService.sendSignal('BUY', result, currentPrice);
+          ctx.lastNotifiedSignalKey = signalKey;
         }
 
         // Close all Short positions
@@ -213,8 +226,9 @@ export class StrategyService implements OnModuleInit {
       } else if (result.signal === 'SELL') {
         this.logger.log(`[${mode}][${symbol}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live') {
+        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
           await this.notificationService.sendSignal('SELL', result, currentPrice);
+          ctx.lastNotifiedSignalKey = signalKey;
         }
 
         // Close all Long positions
@@ -243,6 +257,7 @@ export class StrategyService implements OnModuleInit {
 
       } else {
         this.logger.log(`[${mode}][${symbol}] ⏸  HOLD | Zone: ${result.zoneName} (${result.zone})`);
+        ctx.lastNotifiedSignalKey = null;
       }
 
       ctx.lastZone = result.zone;

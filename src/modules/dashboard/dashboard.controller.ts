@@ -1,11 +1,11 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, DefaultValuePipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, NotFoundException, DefaultValuePipe, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { UpdateSettingsDto, SYMBOL_PATTERN, VALID_TIMEFRAMES } from './dto/update-settings.dto';
 import { AddPairDto } from './dto/add-pair.dto';
 import { ParseModePipe } from './mode.pipe';
 
@@ -105,6 +105,7 @@ export class DashboardController {
   /** CDC indicator สำหรับ candle ล่าสุด (on-demand) */
   @Get('indicator')
   async getIndicator(@Query('symbol') symbol = 'BTC/USDT:USDT') {
+    if (!SYMBOL_PATTERN.test(symbol)) throw new BadRequestException('invalid symbol');
     const candles = await this.marketDataService.fetchOHLCV(200, symbol);
     if (!candles.length) return { error: 'ไม่ได้รับ candle data' };
 
@@ -130,6 +131,8 @@ export class DashboardController {
     @Query('timeframe') timeframe?: string,
     @Query('symbol') symbol = 'BTC/USDT:USDT',
   ) {
+    if (!SYMBOL_PATTERN.test(symbol)) throw new BadRequestException('invalid symbol');
+    if (timeframe && !VALID_TIMEFRAMES.includes(timeframe as any)) throw new BadRequestException('invalid timeframe');
     const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, timeframe, symbol);
     if (!candles.length) return { candles: [], indicators: [], count: 0 };
     const indicators = this.cdcService.calculateHistory(candles);
@@ -196,7 +199,7 @@ export class DashboardController {
 
   /** ปิด position เดี่ยวด้วยมือ (manual market close) */
   @Post('positions/:id/close')
-  async closePosition(@Param('id') id: string) {
+  async closePosition(@Param('id', ParseUUIDPipe) id: string) {
     const position = await this.tradingService.closePositionById(id);
     return { ok: true, position };
   }
@@ -208,6 +211,13 @@ export class DashboardController {
     @Body() body: UpdateSettingsDto,
   ) {
     const { symbol, ...fields } = body;
+
+    // Reject unknown pairs up front — before any getSettings call, which would
+    // otherwise auto-create a phantom row. Pairs are created only via addPair.
+    const exists = (await this.settingsService.getAllSettings(mode)).some(p => p.symbol === symbol);
+    if (!exists) {
+      throw new NotFoundException(`no settings for ${mode}/${symbol} — add the pair first`);
+    }
 
     if (fields.emaFast !== undefined || fields.emaSlow !== undefined) {
       const current = await this.settingsService.getSettings(mode, symbol);

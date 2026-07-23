@@ -48,7 +48,7 @@ export interface Position {
   openTime: Date;
   closeTime?: Date;
   closedPnl?: number;
-  status: 'open' | 'closed';
+  status: 'open' | 'closing' | 'closed';
   mode: 'live' | 'sandbox';
   slOrderId?: string | null;
   tpOrderId?: string | null;

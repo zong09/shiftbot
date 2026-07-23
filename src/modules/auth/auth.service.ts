@@ -50,9 +50,18 @@ export class AuthService implements OnApplicationBootstrap {
     }
   }
 
+  // bcrypt hash of a throwaway value — compared against on the user-miss path so an
+  // unknown username takes the same time as a wrong password (no timing enumeration).
+  private static readonly DUMMY_HASH =
+    '$2a$10$CwTycUXWue0Thq9StjUM0uJ8ZzKpXGiJT2rDCBBB0mPZEK1bZDHhu';
+
   async validateUser(username: string, pass: string): Promise<any> {
     const user = await this.userRepo.findOne({ where: { username } });
-    if (user && (await bcrypt.compare(pass, user.passwordHash))) {
+    if (!user) {
+      await bcrypt.compare(pass, AuthService.DUMMY_HASH); // equalize timing
+      return null;
+    }
+    if (await bcrypt.compare(pass, user.passwordHash)) {
       const { passwordHash, ...result } = user;
       return result;
     }

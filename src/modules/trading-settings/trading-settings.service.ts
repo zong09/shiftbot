@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TradingSettingsEntity } from '../../database/entities/trading-settings.entity';
@@ -25,9 +25,12 @@ export class TradingSettingsService {
   async getSettings(mode: TradingMode, symbol: string): Promise<TradingSettingsEntity> {
     let row = await this.repo.findOne({ where: { mode, symbol } });
     if (!row) {
-      row = await this.repo.save(this.repo.create({ mode, symbol, ...defaultFields() }));
+      // upsert (not save) so two concurrent first-time callers for the same
+      // (mode, symbol) composite PK don't collide on a unique-violation.
+      await this.repo.upsert({ mode, symbol, ...defaultFields() }, ['mode', 'symbol']);
+      row = await this.repo.findOne({ where: { mode, symbol } });
     }
-    return row;
+    return row!;
   }
 
   async getAllSettings(mode: TradingMode): Promise<TradingSettingsEntity[]> {
@@ -48,7 +51,14 @@ export class TradingSettingsService {
     symbol: string,
     dto: Partial<SettingsFields>,
   ): Promise<TradingSettingsEntity> {
-    await this.repo.upsert({ mode, symbol, ...dto }, ['mode', 'symbol']);
+    // update (not upsert): a settings row must be created only via addPair, which
+    // also schedules its cron job. Upserting here would create a phantom pair with
+    // no job managing it.
+    const existing = await this.repo.findOne({ where: { mode, symbol } });
+    if (!existing) {
+      throw new NotFoundException(`no settings for ${mode}/${symbol} — add the pair first`);
+    }
+    await this.repo.update({ mode, symbol }, dto);
     return this.getSettings(mode, symbol);
   }
 

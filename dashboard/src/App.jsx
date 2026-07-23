@@ -252,12 +252,16 @@ export default function App() {
             await loadData(mode, chartTimeframe, chartSymbol);
           }}
           onRemovePair={async (m, symbol) => {
-            await removePair(m, symbol);
-            if (m === mode && symbol === chartSymbol) {
-              const remaining = (settings?.[m] ?? []).filter(p => p.symbol !== symbol);
-              if (remaining[0]) setChartSymbol(remaining[0].symbol);
+            try {
+              await removePair(m, symbol);
+              if (m === mode && symbol === chartSymbol) {
+                const remaining = (settings?.[m] ?? []).filter(p => p.symbol !== symbol);
+                if (remaining[0]) setChartSymbol(remaining[0].symbol);
+              }
+              await loadData(mode, chartTimeframe, chartSymbol);
+            } catch (err) {
+              setError(`ลบ pair ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
             }
-            await loadData(mode, chartTimeframe, chartSymbol);
           }}
         />
       ) : (
