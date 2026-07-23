@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { TradingService } from './trading.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { NotificationService } from '../notification/notification.service';
 import { PositionEntity } from '../../database/entities/position.entity';
 import { TradeLogEntity } from '../../database/entities/trade-log.entity';
 import { CDCZone, Position } from '../../common/types';
@@ -76,6 +77,8 @@ function makeFakeExchange() {
     createOrder:           jest.fn().mockResolvedValue({ id: 'protective-1' }),
     cancelOrder:           jest.fn().mockResolvedValue(undefined),
     fetchOpenOrders:       jest.fn().mockResolvedValue([]),
+    fetchPositions:        jest.fn().mockResolvedValue([]),
+    fapiPrivateGetIncome:  jest.fn().mockResolvedValue([{ income: '12.5' }]),
     marketId:              jest.fn((symbol: string) => symbol.replace('/', '').replace(':USDT', '')),
   };
 }
@@ -87,6 +90,13 @@ function makeMarketDataService(exchange = makeFakeExchange()): jest.Mocked<Parti
   } as any;
 }
 
+function makeNotificationService(): jest.Mocked<Partial<NotificationService>> {
+  return {
+    sendOpenPosition:  jest.fn().mockResolvedValue(undefined),
+    sendClosePosition: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
 // ─── test setup ──────────────────────────────────────────────────────────────
 
 describe('TradingService', () => {
@@ -94,11 +104,13 @@ describe('TradingService', () => {
   let positionRepo: ReturnType<typeof makePositionRepo>;
   let tradeLogRepo: ReturnType<typeof makeTradeLogRepo>;
   let exchange: ReturnType<typeof makeFakeExchange>;
+  let notificationService: ReturnType<typeof makeNotificationService>;
 
   beforeEach(async () => {
     positionRepo = makePositionRepo();
     tradeLogRepo = makeTradeLogRepo();
     exchange     = makeFakeExchange();
+    notificationService = makeNotificationService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -107,6 +119,7 @@ describe('TradingService', () => {
         { provide: getRepositoryToken(TradeLogEntity),  useValue: tradeLogRepo },
         { provide: MarketDataService,                    useValue: makeMarketDataService(exchange) },
         { provide: TradingSettingsService,               useValue: makeSettingsService() },
+        { provide: NotificationService,                  useValue: notificationService },
       ],
     }).compile();
 
@@ -454,6 +467,65 @@ describe('TradingService', () => {
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
       expect(positionRepo.update).not.toHaveBeenCalled();
       expect(tradeLogRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── close notifications (live gate) ───────────────────────────────────────
+
+  describe('close notifications', () => {
+    it('notifies on close in live mode with the given reason', async () => {
+      const pos = makeOpenPosition({ mode: 'live' });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'SIGNAL', 51_000);
+    });
+
+    it('does NOT notify on close in sandbox mode', async () => {
+      const pos = makeOpenPosition({ mode: 'sandbox' });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'sandbox');
+      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+    });
+
+    it('passes the real pnl on the position to the notifier (not 0)', async () => {
+      const pos = makeOpenPosition({ entryPrice: 50_000, quantity: 0.02, mode: 'live' });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
+      const notified = (notificationService.sendClosePosition as jest.Mock).mock.calls[0][0];
+      expect(notified.closedPnl).toBeCloseTo(20, 5);
+    });
+
+    it('forwards a MANUAL reason to the notifier', async () => {
+      const pos = makeOpenPosition({ mode: 'live' });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'MANUAL', 'live');
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'MANUAL', 51_000);
+    });
+
+    it('notifies on closeShort in live mode', async () => {
+      const pos = makeOpenPosition({ side: 'short', mode: 'live' });
+      await service.closeShort(pos, 49_000, CDCZone.BULL, 'TP', 'live');
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'TP', 49_000);
+    });
+
+    it('does NOT notify when the close fails on-exchange', async () => {
+      exchange.createMarketSellOrder.mockRejectedValue(new Error('exchange down'));
+      const pos = makeOpenPosition({ mode: 'live' });
+      await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
+      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+    });
+
+    it('notifies with reason SYNC and realized pnl when a live position closed on-exchange', async () => {
+      const pos = makeOpenPosition({ mode: 'live', entryPrice: 50_000, quantity: 0.01 });
+      positionRepo.find.mockResolvedValue([pos]);
+      await service.syncPositions('live', 'BTC/USDT:USDT');
+      expect(notificationService.sendClosePosition).toHaveBeenCalledTimes(1);
+      const [notified, reason] = (notificationService.sendClosePosition as jest.Mock).mock.calls[0];
+      expect(reason).toBe('SYNC');
+      expect(notified.closedPnl).toBeCloseTo(12.5, 5);
+    });
+
+    it('does NOT notify on sync-close in sandbox mode', async () => {
+      const pos = makeOpenPosition({ mode: 'sandbox' });
+      positionRepo.find.mockResolvedValue([pos]);
+      await service.syncPositions('sandbox', 'BTC/USDT:USDT');
+      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
     });
   });
 
