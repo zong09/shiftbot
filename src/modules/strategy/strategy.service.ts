@@ -192,9 +192,6 @@ export class StrategyService implements OnModuleInit {
           if (pos.side === 'short') {
             const ok = await this.tradingService.closeShort(pos, currentPrice, result.zone, 'SIGNAL', mode);
             if (!ok) { closeOk = false; continue; }
-            if (mode === 'live') {
-              await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
-            }
           }
         }
 
@@ -227,9 +224,6 @@ export class StrategyService implements OnModuleInit {
           if (pos.side === 'long') {
             const ok = await this.tradingService.closeLong(pos, currentPrice, result.zone, 'SIGNAL', mode);
             if (!ok) { closeOk = false; continue; }
-            if (mode === 'live') {
-              await this.notificationService.sendClosePosition(pos, 'SIGNAL', currentPrice);
-            }
           }
         }
 

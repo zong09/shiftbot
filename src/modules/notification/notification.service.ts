@@ -9,13 +9,15 @@ export class NotificationService {
   private channel: string;
   private telegramToken: string;
   private telegramChatId: string;
-  private lineToken: string;
+  private lineAccessToken: string;
+  private lineTo: string;
 
   constructor(private configService: ConfigService) {
     this.channel       = this.configService.get<string>('notification.channel', 'telegram');
     this.telegramToken = this.configService.get<string>('notification.telegram.botToken');
     this.telegramChatId= this.configService.get<string>('notification.telegram.chatId');
-    this.lineToken     = this.configService.get<string>('notification.line.token');
+    this.lineAccessToken = this.configService.get<string>('notification.line.accessToken');
+    this.lineTo          = this.configService.get<string>('notification.line.to');
   }
 
   async sendSignal(signal: 'BUY' | 'SELL', cdc: CDCResult, price: number): Promise<void> {
@@ -46,12 +48,12 @@ export class NotificationService {
 
   async sendClosePosition(
     position: Position,
-    reason: 'SIGNAL' | 'SL' | 'TP',
+    reason: 'SIGNAL' | 'SL' | 'TP' | 'MANUAL' | 'SYNC',
     currentPrice: number,
   ): Promise<void> {
     const pnl = position.closedPnl ?? 0;
     const emoji = pnl >= 0 ? '✅' : '❌';
-    const reasonText = { SIGNAL: 'Signal', SL: 'Stop Loss', TP: 'Take Profit' }[reason];
+    const reasonText = { SIGNAL: 'Signal', SL: 'Stop Loss', TP: 'Take Profit', MANUAL: 'Manual', SYNC: 'ปิดบน Exchange (SL/TP)' }[reason];
 
     const sideText = position.side === 'long' ? 'Long' : 'Short';
     const msg =
@@ -101,17 +103,17 @@ export class NotificationService {
   }
 
   private async sendLine(message: string): Promise<void> {
-    if (!this.lineToken) {
-      this.logger.warn('LINE Notify token ไม่ได้ตั้งค่า');
+    if (!this.lineAccessToken || !this.lineTo) {
+      this.logger.warn('LINE Messaging API config ไม่ครบ');
       return;
     }
     // ลบ Markdown formatting สำหรับ LINE
     const plainText = message.replace(/\*/g, '');
     await axios.post(
-      'https://notify-api.line.me/api/notify',
-      `message=${encodeURIComponent(plainText)}`,
-      { headers: { Authorization: `Bearer ${this.lineToken}`, 'Content-Type': 'application/x-www-form-urlencoded' } },
+      'https://api.line.me/v2/bot/message/push',
+      { to: this.lineTo, messages: [{ type: 'text', text: plainText }] },
+      { headers: { Authorization: `Bearer ${this.lineAccessToken}`, 'Content-Type': 'application/json' } },
     );
-    this.logger.log('ส่ง LINE Notify สำเร็จ');
+    this.logger.log('ส่ง LINE Messaging API สำเร็จ');
   }
 }

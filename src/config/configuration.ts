@@ -45,7 +45,8 @@ export default () => ({
       chatId: process.env.TELEGRAM_CHAT_ID,
     },
     line: {
-      token: process.env.LINE_NOTIFY_TOKEN,
+      accessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+      to: process.env.LINE_TO,
     },
   },
 });

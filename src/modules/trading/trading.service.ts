@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MarketDataService } from '../market-data/market-data.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { NotificationService } from '../notification/notification.service';
 import { Position, TradeLog, CDCZone } from '../../common/types';
 import { PositionEntity } from '../../database/entities/position.entity';
 import { TradeLogEntity } from '../../database/entities/trade-log.entity';
@@ -21,6 +22,7 @@ export class TradingService {
     private tradeLogRepo: Repository<TradeLogEntity>,
     private marketDataService: MarketDataService,
     private settingsService: TradingSettingsService,
+    private notificationService: NotificationService,
   ) {}
 
   async hasOpenPosition(mode: TradingMode, symbol: string): Promise<boolean> {
@@ -350,7 +352,7 @@ export class TradingService {
     position: Position,
     currentPrice: number,
     zone: CDCZone,
-    reason: 'SIGNAL' | 'SL' | 'TP',
+    reason: 'SIGNAL' | 'SL' | 'TP' | 'MANUAL',
     mode: TradingMode,
   ): Promise<boolean> {
     const symbol = position.symbol;
@@ -370,6 +372,7 @@ export class TradingService {
         closeTime,
         status: 'closed',
       });
+      position.closedPnl = pnl;
 
       const action = reason === 'SL' ? 'SL_HIT' : reason === 'TP' ? 'TP_HIT' : 'CLOSE_LONG';
       await this.tradeLogRepo.save(
@@ -388,6 +391,10 @@ export class TradingService {
       this.logger.log(
         `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
+
+      if (mode === 'live') {
+        await this.notificationService.sendClosePosition(position, reason, currentPrice);
+      }
       return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeLong error: ` + err.message);
@@ -480,7 +487,7 @@ export class TradingService {
     position: Position,
     currentPrice: number,
     zone: CDCZone,
-    reason: 'SIGNAL' | 'SL' | 'TP',
+    reason: 'SIGNAL' | 'SL' | 'TP' | 'MANUAL',
     mode: TradingMode,
   ): Promise<boolean> {
     const symbol = position.symbol;
@@ -500,6 +507,7 @@ export class TradingService {
         closeTime,
         status: 'closed',
       });
+      position.closedPnl = pnl;
 
       const action = reason === 'SL' ? 'SL_HIT' : reason === 'TP' ? 'TP_HIT' : 'CLOSE_SHORT';
       await this.tradeLogRepo.save(
@@ -518,6 +526,10 @@ export class TradingService {
       this.logger.log(
         `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${currentPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
+
+      if (mode === 'live') {
+        await this.notificationService.sendClosePosition(position, reason, currentPrice);
+      }
       return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeShort error: ` + err.message);
@@ -544,9 +556,9 @@ export class TradingService {
     }
     for (const pos of positions) {
       if (pos.side === 'long') {
-        await this.closeLong(pos, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+        await this.closeLong(pos, currentPrice, CDCZone.NONE, 'MANUAL', mode);
       } else if (pos.side === 'short') {
-        await this.closeShort(pos, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+        await this.closeShort(pos, currentPrice, CDCZone.NONE, 'MANUAL', mode);
       }
     }
     this.logger.log(`[${mode}][${symbol}] closeAllPositions: closed ${positions.length} position(s) at ${currentPrice}`);
@@ -567,9 +579,9 @@ export class TradingService {
     }
 
     if (position.side === 'long') {
-      await this.closeLong(position as unknown as Position, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+      await this.closeLong(position as unknown as Position, currentPrice, CDCZone.NONE, 'MANUAL', mode);
     } else {
-      await this.closeShort(position as unknown as Position, currentPrice, CDCZone.NONE, 'SIGNAL', mode);
+      await this.closeShort(position as unknown as Position, currentPrice, CDCZone.NONE, 'MANUAL', mode);
     }
 
     const updated = await this.positionRepo.findOne({ where: { id } });
@@ -645,6 +657,13 @@ export class TradingService {
               mode,
             })
           );
+
+          // syncPositions is the live SL/TP path (native exchange orders fill
+          // on Binance, not through closeLong/closeShort), so notify here too.
+          if (mode === 'live') {
+            localPos.closedPnl = pnl;
+            await this.notificationService.sendClosePosition(localPos, 'SYNC', price || localPos.entryPrice);
+          }
         }
       }
     } catch (err) {
