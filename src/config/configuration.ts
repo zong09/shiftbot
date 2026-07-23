@@ -10,7 +10,7 @@ const requireJwtSecret = (): string => {
 };
 
 export default () => ({
-  port: parseInt(process.env.PORT, 10) || 3000,
+  port: parseInt(process.env.PORT, 10) || 3001,
 
   binance: {
     apiKey:        process.env.BINANCE_API_KEY,

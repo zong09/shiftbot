@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import * as ccxt from "ccxt";
 import * as WebSocket from "ws";
 import { OHLCV } from "../../common/types";
+import { TIMEFRAME_MS } from "../../common/timeframes";
 
 @Injectable()
 export class MarketDataService implements OnModuleInit, OnModuleDestroy {
@@ -31,12 +32,8 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
 
     this.liveEnabled = this.isConfigured(liveKey);
 
-    this.logger.log(
-      `[Live] API key loaded: ${liveKey?.substring(0, 8) ?? "(none)"}...`,
-    );
-    this.logger.log(
-      `[Demo] API key loaded: ${demoKey?.substring(0, 8) ?? "(none)"}...`,
-    );
+    this.logger.log(`[Live] API key: ${this.isConfigured(liveKey) ? "configured" : "not configured"}`);
+    this.logger.log(`[Demo] API key: ${this.isConfigured(demoKey) ? "configured" : "not configured"}`);
 
     this.exchangeLive = new ccxt.binanceusdm({
       apiKey: liveKey,
@@ -122,17 +119,21 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  private static readonly TIMEFRAME_MS: Record<string, number> = {
-    '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
-    '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
-  };
-
-  /** Cache is usable when it has history and the newest candle is at most 2 timeframes old. */
+  /** Cache is usable when it has history, the newest candle is at most 2 timeframes
+   *  old, AND the recent series is contiguous. A WS drop can leave a timestamp gap;
+   *  EMA over a gapped series yields a wrong zone, so a gap forces a REST refetch. */
   private isCacheUsable(candles: OHLCV[] | undefined, timeframe: string): boolean {
     if (!candles || candles.length < 2) return false;
-    const tfMs = MarketDataService.TIMEFRAME_MS[timeframe] ?? 3_600_000;
+    const tfMs = TIMEFRAME_MS[timeframe] ?? 3_600_000;
     const last = candles[candles.length - 1];
-    return Date.now() - last.timestamp <= 2 * tfMs;
+    if (Date.now() - last.timestamp > 2 * tfMs) return false;
+
+    // Contiguity check over the last 30 candles (bounded — enough to protect the EMA tail).
+    const start = Math.max(1, candles.length - 30);
+    for (let i = start; i < candles.length; i++) {
+      if (candles[i].timestamp - candles[i - 1].timestamp !== tfMs) return false;
+    }
+    return true;
   }
 
   private async subscribeToKlineStream(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {

@@ -13,7 +13,7 @@ docker compose up -d
 
 # Run bot + dashboard together (dev mode)
 npm run dev
-# → Bot API:  http://localhost:3000
+# → Bot API:  http://localhost:3001
 # → Dashboard: http://localhost:5173
 
 # Run bot only
@@ -27,8 +27,8 @@ npm run build && npm start
 
 The project has two parts in the same folder:
 
-**`/src`** — NestJS bot (port 3000)  
-**`/dashboard`** — Vite + React UI (port 5173), proxied to bot via `/api → localhost:3000`
+**`/src`** — NestJS bot (port 3001)  
+**`/dashboard`** — Vite + React UI (port 5173), proxied to bot via `/api → localhost:3001`
 
 ### Bot data flow
 

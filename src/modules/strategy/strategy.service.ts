@@ -7,6 +7,7 @@ import { TradingService, TradingMode } from '../trading/trading.service';
 import { NotificationService } from '../notification/notification.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { CDCZone, CDCResult } from '../../common/types';
+import { TIMEFRAME_MS } from '../../common/timeframes';
 
 interface PairContext {
   lastZone: CDCZone | undefined;
@@ -21,15 +22,6 @@ const TIMEFRAME_CRON: Record<string, string> = {
   '1h':  '0 * * * *',
   '4h':  '0 */4 * * *',
   '1d':  '0 0 * * *',
-};
-
-const TIMEFRAME_MS: Record<string, number> = {
-  '1m':  60_000,
-  '5m':  300_000,
-  '15m': 900_000,
-  '1h':  3_600_000,
-  '4h':  14_400_000,
-  '1d':  86_400_000,
 };
 
 function timeframeToCron(timeframe: string): string {
