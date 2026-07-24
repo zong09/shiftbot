@@ -1,33 +1,47 @@
 @import 'tailwindcss';
-@import '@fontsource-variable/inter';
+
+/* Self-hosted fonts (ADR-2). Per-weight files include all subsets (incl. Thai) via unicode-range. */
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/ibm-plex-sans-thai/400.css';
+@import '@fontsource/ibm-plex-sans-thai/500.css';
+@import '@fontsource/ibm-plex-sans-thai/600.css';
+@import '@fontsource/ibm-plex-sans-thai/700.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Keep hex values in sync with TOKENS in src/theme.js */
+/* Design-handoff palette. Keep hex values in sync with TOKENS in src/theme.js.
+   --accent is a per-mode, user-overridable default; App/Login set it inline on their root. */
 :root {
-  --bg: #f7f8fa;
-  --surface: #ffffff;
-  --surface-alt: #f1f3f6;
-  --border: #e3e6ec;
-  --text-primary: #1a202c;
-  --text-secondary: #64748b;
-  --accent: #2563eb;
-  --bull: #059669;
-  --bear: #dc2626;
-  --warn: #d97706;
+  --bg: #f5efe6;
+  --surface: #fffdf8;
+  --surface-alt: #f8f3e9;
+  --border: #e8dfca;
+  --text-primary: #28303a;
+  --text-secondary: #78828f;
+  --accent: #7895b2;
+  --bull: #2f8f5f;
+  --bear: #c65f49;
+  --warn: #b5883f;
+  --split-cols: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
 }
 
 .dark {
-  --bg: #0b0d12;
-  --surface: #11141b;
-  --surface-alt: #161a23;
-  --border: #232836;
-  --text-primary: #e6e9ef;
-  --text-secondary: #8a93a5;
-  --accent: #3b82f6;
-  --bull: #0ecb81;
-  --bear: #f6465d;
-  --warn: #f59e0b;
+  --bg: #1b2026;
+  --surface: #242b33;
+  --surface-alt: #2c343d;
+  --border: #333d47;
+  --text-primary: #e9ecef;
+  --text-secondary: #98a2ae;
+  --accent: #7895b2;
+  --bull: #5cc48a;
+  --bear: #e6806a;
+  --warn: #b5883f;
 }
 
 @theme inline {
@@ -41,11 +55,29 @@
   --color-bull: var(--bull);
   --color-bear: var(--bear);
   --color-warn: var(--warn);
-  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-sans: 'IBM Plex Sans Thai', 'Space Grotesk', system-ui, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
 @layer base {
   body {
     @apply bg-bg text-primary font-sans antialiased;
   }
+  /* Headings / brand → Space Grotesk */
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  /* Every numeric/financial value already carries .tabular-nums — route them to IBM Plex Mono */
+  .tabular-nums {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
 }
+
+/* Prototype animations */
+@keyframes sbpulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.82); } }
+@keyframes sbfade  { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.animate-sbpulse { animation: sbpulse 1.6s ease-in-out infinite; }
+.animate-sbfade  { animation: sbfade .35s ease; }

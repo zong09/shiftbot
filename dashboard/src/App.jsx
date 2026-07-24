@@ -4,46 +4,36 @@ import PortfolioSummary from './components/PortfolioSummary.jsx';
 import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import PriceChart   from './components/PriceChart.jsx';
-import Settings      from './components/Settings.jsx';
-import Login         from './components/Login.jsx';
+import Settings     from './components/Settings.jsx';
+import Login        from './components/Login.jsx';
+import { LogoTile, Refresh, Sun, Moon, Logout } from './components/icons.jsx';
 import { useTheme } from './ThemeContext.jsx';
 import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair, closePosition } from './api.js';
 
 const REFRESH_INTERVAL = 30_000;
 
-function SunIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-    </svg>
-  );
-}
+const MODES = [
+  { key: 'live',    label: 'Live',    dot: '#3f9e6b' },
+  { key: 'sandbox', label: 'Sandbox', dot: '#b5883f' },
+];
 
-function MoonIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-    </svg>
-  );
-}
+const BANNER = {
+  live:    { title: 'Live Mode',    msg: 'ส่ง order จริงด้วยเงินจริงบน Binance Futures' },
+  sandbox: { title: 'Sandbox Mode', msg: 'ส่ง order จำลองไปที่ Binance Demo Trade' },
+};
 
-function RefreshIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-      <path d="M21 3v6h-6" />
-    </svg>
-  );
-}
+const segClass = (active) =>
+  `inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all duration-150 ${
+    active ? 'bg-accent text-white shadow-[0_2px_8px_-2px_color-mix(in_srgb,var(--accent)_60%,transparent)]' : 'text-secondary hover:text-primary'
+  }`;
 
-const tabClass = (active) =>
-  `px-5 py-1.5 rounded-md text-[13px] font-semibold cursor-pointer transition-colors duration-150 ${
+const chipClass = (active) =>
+  `px-4 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-all duration-150 ${
     active ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'
   }`;
 
 export default function App() {
-  const { theme, toggle } = useTheme();
+  const { theme, toggle, accentFor, layout, setLayout } = useTheme();
   const [token,          setToken]          = useState(() => localStorage.getItem('token'));
   const [mode,           setMode]           = useState('live');
   const [status,         setStatus]         = useState(null);
@@ -57,16 +47,14 @@ export default function App() {
   const [error,          setError]          = useState(null);
   const [countdown,      setCountdown]      = useState(REFRESH_INTERVAL / 1000);
   const [settings,       setSettings]       = useState(null);
-  const [activeTab,      setActiveTab]      = useState('chart');
-  const prevModeRef = useRef(null);
+  const [page,           setPage]           = useState('dashboard');
+  const prevModeRef   = useRef(null);
   const prevSymbolRef = useRef(null);
-  const loadSeqRef = useRef(0);
+  const loadSeqRef    = useRef(0);
 
-  // Listen to token expiration or 401 events from Axios interceptor
+  // Listen to token expiration or 401 events from the axios interceptor
   useEffect(() => {
-    const handleUnauthorized = () => {
-      setToken(null);
-    };
+    const handleUnauthorized = () => setToken(null);
     window.addEventListener('unauthorized', handleUnauthorized);
     return () => window.removeEventListener('unauthorized', handleUnauthorized);
   }, []);
@@ -103,7 +91,7 @@ export default function App() {
     }
   }, []);
 
-  // reload when mode or chartTimeframe or chartSymbol changes
+  // reload when mode / chartTimeframe / chartSymbol changes
   useEffect(() => {
     if (!token) return;
     setLoading(true);
@@ -127,7 +115,6 @@ export default function App() {
     const pairs = settings?.[mode];
     if (!Array.isArray(pairs) || pairs.length === 0) return;
 
-    // on mode change: jump to the first pair's symbol + its timeframe
     if (prevModeRef.current !== mode) {
       prevModeRef.current = mode;
       const firstPair = pairs[0];
@@ -137,7 +124,6 @@ export default function App() {
       return;
     }
 
-    // on symbol change: sync timeframe to that symbol's setting
     if (prevSymbolRef.current !== chartSymbol) {
       prevSymbolRef.current = chartSymbol;
       const pair = pairs.find(p => p.symbol === chartSymbol);
@@ -145,174 +131,207 @@ export default function App() {
     }
   }, [mode, chartSymbol, settings]);
 
-  const isSandbox = mode === 'sandbox';
-  const firstPairStatus = settings?.[mode]?.[0]?.status ?? null;
-
   if (!token) {
     return <Login onLoginSuccess={setToken} />;
   }
 
+  const banner = BANNER[mode];
+  const rootStyle = {
+    '--accent': accentFor(mode),
+    '--split-cols': layout === 'split' ? 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))' : '1fr',
+  };
+
   return (
-    <div className="min-h-dvh max-w-[1100px] mx-auto px-6 py-5">
+    <div style={rootStyle} className="min-h-dvh bg-bg text-primary">
+      <div className="max-w-[1360px] mx-auto px-5 pt-4 pb-16">
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">ShiftBot</h1>
-          <div className="text-xs text-secondary mt-0.5">
-            Binance Futures · {chartSymbol.replace(':USDT', '')}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {lastFetch && (
-            <div className="text-[11px] text-secondary/80 text-right tabular-nums">
-              <div>อัพเดตล่าสุด: {lastFetch.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</div>
-              <div>refresh ใน {countdown}s</div>
+        {/* Top bar */}
+        <header className="flex items-center gap-4 flex-wrap pb-4 mb-4 border-b border-border">
+          <div className="flex items-center gap-2.5 mr-1">
+            <LogoTile size={38} radius={11} iconSize={23} />
+            <div>
+              <div className="font-display font-bold text-[18px] leading-none tracking-tight">ShiftBot</div>
+              <div className="text-[11px] text-secondary mt-0.5">Binance Futures · {chartSymbol.replace(':USDT', '')}</div>
             </div>
-          )}
-          <button
-            onClick={() => loadData(mode, chartTimeframe, chartSymbol)}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-[13px] font-medium text-secondary hover:bg-surface-alt hover:text-primary transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshIcon />
-            {loading ? '...' : 'Refresh'}
-          </button>
-          <button
-            onClick={toggle}
-            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-border text-secondary hover:bg-surface-alt hover:text-primary transition-colors duration-150 cursor-pointer"
-          >
-            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-          </button>
-          <button
-            onClick={() => {
-              localStorage.removeItem('token');
-              setToken(null);
-            }}
-            aria-label="Logout"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3.5 py-2 text-[13px] font-medium text-secondary hover:bg-bear/10 hover:text-bear hover:border-bear/30 transition-colors duration-150 cursor-pointer"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            Logout
-          </button>
-        </div>
-      </div>
+          </div>
 
-      {/* Mode Tabs */}
-      <div className="inline-flex items-center bg-surface-alt rounded-lg p-1 mb-5">
-        <button className={tabClass(mode === 'live')} onClick={() => setMode('live')}>
-          Live
-        </button>
-        <button className={tabClass(mode === 'sandbox')} onClick={() => setMode('sandbox')}>
-          Sandbox
-        </button>
-        <span className="w-px h-5 bg-border mx-1 shrink-0" />
-        <button className={tabClass(activeTab === 'chart')} onClick={() => setActiveTab('chart')}>
-          Chart
-        </button>
-        <button className={tabClass(activeTab === 'settings')} onClick={() => setActiveTab('settings')}>
-          Settings
-        </button>
-      </div>
+          {/* Mode segmented control */}
+          <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-xl">
+            {MODES.map(m => (
+              <button key={m.key} className={segClass(mode === m.key)} onClick={() => setMode(m.key)}>
+                <span className="w-[7px] h-[7px] rounded-full" style={{ background: m.dot }} />
+                {m.label}
+              </button>
+            ))}
+          </div>
 
-      {/* Sandbox Banner */}
-      {isSandbox && (
-        <div className="border border-bull/30 bg-bull/10 text-bull rounded-lg px-4 py-2.5 mb-4 text-[13px]">
-          <strong>Sandbox Mode</strong> — ส่ง order จริงไปที่ Binance Demo Trade
-        </div>
-      )}
+          <div className="ml-auto flex items-center gap-2.5 flex-wrap">
+            {lastFetch && (
+              <div className="text-right leading-snug mr-1">
+                <div className="text-[11px] text-secondary">อัพเดทล่าสุด <span className="tabular-nums">{lastFetch.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span></div>
+                <div className="text-[11px] text-secondary">refresh ใน <span className="tabular-nums">{countdown}s</span></div>
+              </div>
+            )}
+            <button
+              onClick={() => loadData(mode, chartTimeframe, chartSymbol)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-border rounded-lg bg-surface text-[13px] font-medium hover:border-accent transition-colors duration-150 cursor-pointer disabled:opacity-50"
+            >
+              <Refresh /> {loading ? '...' : 'Refresh'}
+            </button>
+            <button
+              onClick={toggle}
+              title="Theme"
+              className="w-9 h-9 flex items-center justify-center border border-border rounded-lg bg-surface hover:border-accent transition-colors duration-150 cursor-pointer"
+            >
+              {theme === 'dark' ? <Sun /> : <Moon />}
+            </button>
+            <button
+              onClick={() => { localStorage.removeItem('token'); setToken(null); }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-border rounded-lg bg-surface text-[13px] font-medium hover:text-bear hover:border-bear transition-colors duration-150 cursor-pointer"
+            >
+              <Logout /> Logout
+            </button>
+          </div>
+        </header>
 
-      {/* Error Banner */}
-      {error && (
-        <div className="border border-bear/30 bg-bear/10 text-bear rounded-lg px-4 py-3 mb-4 text-[13px]">
-          {error}
-        </div>
-      )}
+        {/* Nav */}
+        <nav className="flex gap-1.5 p-1.5 bg-surface border border-border rounded-xl mb-3.5">
+          {[['dashboard', 'Dashboard'], ['settings', 'Settings']].map(([key, label]) => {
+            const active = page === key;
+            return (
+              <button
+                key={key}
+                onClick={() => setPage(key)}
+                className={`px-4.5 py-2 rounded-lg text-[13.5px] font-semibold cursor-pointer transition-all duration-150 ${active ? 'text-accent' : 'text-secondary hover:text-primary'}`}
+                style={active
+                  ? { background: 'color-mix(in srgb, var(--accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 32%, transparent)' }
+                  : { border: '1px solid transparent' }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
 
-      {/* Cards */}
-      {activeTab === 'settings' ? (
-        <Settings
-          settings={settings}
-          activeMode={mode}
-          onModeChange={setMode}
-          onSave={async (m, symbol, data) => {
-            await updateSettings(m, { symbol, ...data });
-            if (m === mode && symbol === chartSymbol && data.timeframe) {
-              setChartTimeframe(data.timeframe);
-            }
-            await loadData(mode, chartTimeframe, chartSymbol);
+        {/* Mode banner */}
+        <div
+          className="flex items-center gap-2.5 px-4 py-2.5 mb-4 rounded-xl text-[13px] font-medium"
+          style={{
+            border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
+            background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+            color: 'var(--accent)',
           }}
-          onAddPair={async (m, symbol) => {
-            await addPair(m, symbol);
-            await loadData(mode, chartTimeframe, chartSymbol);
-          }}
-          onRemovePair={async (m, symbol) => {
-            try {
-              await removePair(m, symbol);
-              if (m === mode && symbol === chartSymbol) {
-                const remaining = (settings?.[m] ?? []).filter(p => p.symbol !== symbol);
-                if (remaining[0]) setChartSymbol(remaining[0].symbol);
+        >
+          <span className="w-2 h-2 rounded-full animate-sbpulse" style={{ background: 'var(--accent)' }} />
+          <span className="font-display font-bold">{banner.title}</span>
+          <span className="opacity-85">— {banner.msg}</span>
+        </div>
+
+        {/* Error banner */}
+        {error && (
+          <div className="border border-bear/30 bg-bear/10 text-bear rounded-xl px-4 py-3 mb-4 text-[13px]">
+            {error}
+          </div>
+        )}
+
+        {page === 'settings' ? (
+          <Settings
+            settings={settings}
+            activeMode={mode}
+            onModeChange={setMode}
+            onSave={async (m, symbol, data) => {
+              await updateSettings(m, { symbol, ...data });
+              if (m === mode && symbol === chartSymbol && data.timeframe) {
+                setChartTimeframe(data.timeframe);
               }
               await loadData(mode, chartTimeframe, chartSymbol);
-            } catch (err) {
-              setError(`ลบ pair ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
-            }
-          }}
-        />
-      ) : (
-        <>
-          <PortfolioSummary
-            pairs={status?.pairs ?? []}
-            trades={trades}
-            balance={status?.balance}
-            activeSymbol={chartSymbol}
-            onSymbolChange={setChartSymbol}
-          />
-          <StatusCard
-            status={status}
-            pairs={settings?.[mode] ?? []}
-            activeSymbol={chartSymbol}
-            onSymbolChange={setChartSymbol}
-            onStatusChange={async (newStatus) => {
-              const activeSettings = settings?.[mode]?.find(p => p.symbol === chartSymbol);
-              if (activeSettings) {
-                await updateSettings(mode, { symbol: chartSymbol, status: newStatus });
-                await loadData(mode, chartTimeframe, chartSymbol);
-              }
             }}
-          />
-          <PriceChart
-            candles={candles}
-            indicators={indicators}
-            positions={(status?.openPositions ?? []).filter(p => p.symbol === chartSymbol)}
-            trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
-            symbol={chartSymbol}
-            chartTimeframe={chartTimeframe}
-            onTimeframeChange={setChartTimeframe}
-          />
-          <Positions
-            positions={status?.openPositions ?? []}
-            onClose={async (id) => {
+            onAddPair={async (m, symbol) => {
+              await addPair(m, symbol);
+              await loadData(mode, chartTimeframe, chartSymbol);
+            }}
+            onRemovePair={async (m, symbol) => {
               try {
-                await closePosition(id);
+                await removePair(m, symbol);
+                if (m === mode && symbol === chartSymbol) {
+                  const remaining = (settings?.[m] ?? []).filter(p => p.symbol !== symbol);
+                  if (remaining[0]) setChartSymbol(remaining[0].symbol);
+                }
                 await loadData(mode, chartTimeframe, chartSymbol);
               } catch (err) {
-                setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
+                setError(`ลบ pair ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
               }
             }}
           />
-          <TradeHistory trades={trades} />
-        </>
-      )}
+        ) : (
+          <div className="flex flex-col gap-4 animate-sbfade">
+            {/* Layout toggle */}
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] font-semibold tracking-wide text-secondary uppercase">Layout</span>
+              <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-lg">
+                {[['split', 'Split'], ['stack', 'Stack']].map(([key, label]) => (
+                  <button key={key} className={chipClass(layout === key)} onClick={() => setLayout(key)}>{label}</button>
+                ))}
+              </div>
+            </div>
 
-      {/* Footer */}
-      <div className="text-center text-secondary/60 text-[11px] pt-3">
-        ทดสอบบน Testnet ก่อนใช้เงินจริงเสมอ
+            <PortfolioSummary
+              pairs={status?.pairs ?? []}
+              trades={trades}
+              balance={status?.balance}
+              activeSymbol={chartSymbol}
+              onSymbolChange={setChartSymbol}
+            />
+
+            {/* Chart + rail — grid columns follow the Split/Stack layout */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'var(--split-cols)', gap: 16, alignItems: 'start' }}>
+              <div className="min-w-0">
+                <PriceChart
+                  candles={candles}
+                  indicators={indicators}
+                  positions={(status?.openPositions ?? []).filter(p => p.symbol === chartSymbol)}
+                  trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
+                  symbol={chartSymbol}
+                  chartTimeframe={chartTimeframe}
+                  onTimeframeChange={setChartTimeframe}
+                />
+              </div>
+              <div className="min-w-0">
+                <StatusCard
+                  status={status}
+                  pairs={settings?.[mode] ?? []}
+                  activeSymbol={chartSymbol}
+                  onSymbolChange={setChartSymbol}
+                  onStatusChange={async (newStatus) => {
+                    const activeSettings = settings?.[mode]?.find(p => p.symbol === chartSymbol);
+                    if (activeSettings) {
+                      await updateSettings(mode, { symbol: chartSymbol, status: newStatus });
+                      await loadData(mode, chartTimeframe, chartSymbol);
+                    }
+                  }}
+                />
+                <Positions
+                  positions={status?.openPositions ?? []}
+                  onClose={async (id) => {
+                    try {
+                      await closePosition(id);
+                      await loadData(mode, chartTimeframe, chartSymbol);
+                    } catch (err) {
+                      setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <TradeHistory trades={trades} />
+          </div>
+        )}
+
+        <div className="text-center text-secondary/60 text-[11px] pt-3">
+          ระบบเชื่อมต่อ Testnet · กรุณาใช้ด้วยความระมัดระวัง
+        </div>
       </div>
     </div>
   );
