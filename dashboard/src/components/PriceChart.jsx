@@ -63,11 +63,11 @@ export default function PriceChart({
 
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
-      height: 460,
+      height: 380,
       layout: {
         background: { color: c.surface },
         textColor:  c.textSecondary,
-        fontFamily: "'Inter Variable', 'Segoe UI', sans-serif",
+        fontFamily: "'IBM Plex Mono', monospace",
         fontSize:   11,
       },
       grid: {
@@ -91,20 +91,20 @@ export default function PriceChart({
       },
       localization: {
         timeFormatter: (timestamp) => {
-          return new Date(timestamp * 1000).toLocaleString('th-TH', {
-            timeZone: 'UTC',
-          });
+          return new Date(timestamp * 1000).toLocaleString('th-TH', { timeZone: 'UTC' });
         },
       },
     });
 
+    // Candles are colored by direction (up/down), per the design handoff —
+    // not by CDC zone.
     candleRef.current = chart.addCandlestickSeries({
-      upColor:          c.bull,
-      downColor:        c.bear,
-      borderUpColor:    c.bull,
-      borderDownColor:  c.bear,
-      wickUpColor:      c.bull,
-      wickDownColor:    c.bear,
+      upColor:          c.chart.candleUp,
+      downColor:        c.chart.candleDown,
+      borderUpColor:    c.chart.candleUp,
+      borderDownColor:  c.chart.candleDown,
+      wickUpColor:      c.chart.candleUp,
+      wickDownColor:    c.chart.candleDown,
       priceLineVisible: true,
       priceLineColor:   c.chart.crosshair,
     });
@@ -122,7 +122,7 @@ export default function PriceChart({
       lineWidth:        1,
       priceLineVisible: false,
       lastValueVisible: false,
-      title:            'MA12',
+      title:            'EMA12',
     });
 
     ema26Ref.current = chart.addLineSeries({
@@ -130,7 +130,7 @@ export default function PriceChart({
       lineWidth:        1,
       priceLineVisible: false,
       lastValueVisible: false,
-      title:            'MA26',
+      title:            'EMA26',
     });
 
     chart.subscribeCrosshairMove(param => {
@@ -189,12 +189,12 @@ export default function PriceChart({
       timeScale:       { borderColor: colors.chart.grid },
     });
     candleRef.current?.applyOptions({
-      upColor:         colors.bull,
-      downColor:       colors.bear,
-      borderUpColor:   colors.bull,
-      borderDownColor: colors.bear,
-      wickUpColor:     colors.bull,
-      wickDownColor:   colors.bear,
+      upColor:         colors.chart.candleUp,
+      downColor:       colors.chart.candleDown,
+      borderUpColor:   colors.chart.candleUp,
+      borderDownColor: colors.chart.candleDown,
+      wickUpColor:     colors.chart.candleUp,
+      wickDownColor:   colors.chart.candleDown,
       priceLineColor:  colors.chart.crosshair,
     });
     ema12Ref.current?.applyOptions({ color: colors.chart.emaFast });
@@ -205,24 +205,15 @@ export default function PriceChart({
     if (!candleRef.current || !candles.length) return;
 
     const offsetSec = TZ_OFFSET_SEC;
-    const indMap = new Map(indicators.map(d => [Math.floor(d.timestamp / 1000) + offsetSec, d]));
-
-    const series = candles.map(c => {
-      const timeSec = Math.floor(c.timestamp / 1000) + offsetSec;
-      const ind     = indMap.get(timeSec);
-      const isUp    = c.close >= c.open;
-      if (ind) {
-        const zc = zoneByNumber(ind.zone);
-        if (zc) {
-          const col = isUp ? zc.up : zc.down;
-          return {
-            time: timeSec, open: c.open, high: c.high, low: c.low, close: c.close,
-            color: col, borderColor: col, wickColor: col,
-          };
-        }
-      }
-      return { time: timeSec, open: c.open, high: c.high, low: c.low, close: c.close };
-    });
+    // Direction-colored candles: series carries only OHLC, so the series-level
+    // up/down colors apply.
+    const series = candles.map(c => ({
+      time:  Math.floor(c.timestamp / 1000) + offsetSec,
+      open:  c.open,
+      high:  c.high,
+      low:   c.low,
+      close: c.close,
+    }));
 
     seriesData.current = series;
     candleRef.current.setData(series);
@@ -234,17 +225,6 @@ export default function PriceChart({
         color: c.close >= c.open ? colors.chart.volBull : colors.chart.volBear,
       })));
     }
-
-    const cdcMarkers = indicators
-      .filter(d => d.signal === 'BUY' || d.signal === 'SELL')
-      .map(d => ({
-        time:     Math.floor(d.timestamp / 1000) + offsetSec,
-        position: d.signal === 'BUY' ? 'belowBar' : 'aboveBar',
-        color:    d.signal === 'BUY' ? colors.bull : colors.bear,
-        shape:    d.signal === 'BUY' ? 'arrowUp'   : 'arrowDown',
-        text:     d.signal,
-        size:     1,
-      }));
 
     const posMarkers = positions
       .filter(p => p.openTime)
@@ -271,26 +251,19 @@ export default function PriceChart({
         const isLongClose = t.action === 'CLOSE_LONG' || t.action === 'SL_HIT' || t.action === 'TP_HIT';
         const isShortOpen = t.action === 'OPEN_SHORT';
         const isShortClose = t.action === 'CLOSE_SHORT';
-        
+
         let position = 'belowBar', color = colors.bull, shape = 'circle', text = '';
         if (isLongOpen) {
-           position = 'belowBar'; color = colors.bull; shape = 'circle'; text = `En L @${Number(t.price).toLocaleString()}`;
+          position = 'belowBar'; color = colors.bull; shape = 'circle'; text = `En L @${Number(t.price).toLocaleString()}`;
         } else if (isLongClose) {
-           position = 'aboveBar'; color = colors.bear; shape = 'square'; text = `Ex L @${Number(t.price).toLocaleString()}`;
+          position = 'aboveBar'; color = colors.bear; shape = 'square'; text = `Ex L @${Number(t.price).toLocaleString()}`;
         } else if (isShortOpen) {
-           position = 'aboveBar'; color = colors.bear; shape = 'circle'; text = `En S @${Number(t.price).toLocaleString()}`;
+          position = 'aboveBar'; color = colors.bear; shape = 'circle'; text = `En S @${Number(t.price).toLocaleString()}`;
         } else if (isShortClose) {
-           position = 'belowBar'; color = colors.bull; shape = 'square'; text = `Ex S @${Number(t.price).toLocaleString()}`;
+          position = 'belowBar'; color = colors.bull; shape = 'square'; text = `Ex S @${Number(t.price).toLocaleString()}`;
         }
 
-        return {
-          time:     nearest.time,
-          position,
-          color,
-          shape,
-          text,
-          size:     1,
-        };
+        return { time: nearest.time, position, color, shape, text, size: 1 };
       })
       .filter(Boolean);
 
@@ -298,7 +271,6 @@ export default function PriceChart({
 
     priceLineRefs.current.forEach(pl => { try { candleRef.current.removePriceLine(pl); } catch (_) {} });
     priceLineRefs.current = [];
-    // SL & TP removed
     // only fit when the underlying data changed — a theme-only re-run must not reset zoom/pan
     const dataKey = `${candles.length}:${candles[0]?.timestamp}:${candles[candles.length - 1]?.timestamp}`;
     if (dataKeyRef.current !== dataKey) {
@@ -328,37 +300,37 @@ export default function PriceChart({
   const zoneColor  = zoneByNumber(lastInd?.zone)?.color;
 
   return (
-    <div className="bg-surface border border-border rounded-lg mb-4 overflow-hidden">
-
+    <div
+      className="bg-surface border border-border rounded-2xl mb-4 overflow-hidden"
+      style={{ boxShadow: '0 1px 2px rgba(40,48,58,.05), 0 14px 36px -28px rgba(40,48,58,.3)' }}
+    >
       {/* Toolbar */}
-      <div className="flex items-center h-9 px-3 border-b border-border">
+      <div className="flex items-center flex-wrap gap-2 min-h-11 px-4 py-2 border-b border-border">
         {symbol && (
-          <span className="text-[13px] font-semibold pr-3 mr-1 border-r border-border">
+          <span className="text-[14px] font-mono font-semibold pr-3 mr-1 border-r border-border">
             {symbol.replace(':USDT', '')}
           </span>
         )}
-        <div className={`flex ${symbol ? 'pl-2' : ''}`}>
+        <div className="flex gap-0.5">
           {TIMEFRAMES.map(tf => (
             <button
               key={tf}
               onClick={() => onTimeframeChange?.(tf)}
-              className={`h-9 px-2.5 text-xs cursor-pointer border-b-2 transition-colors duration-150 ${
+              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold cursor-pointer border transition-colors duration-150 ${
                 chartTimeframe === tf
-                  ? 'font-bold text-accent border-accent'
-                  : 'font-normal text-secondary border-transparent hover:text-primary'
+                  ? 'bg-accent text-white border-transparent'
+                  : 'text-secondary border-border hover:text-primary'
               }`}
             >
-              {tf.toUpperCase()}
+              {tf}
             </button>
           ))}
         </div>
         <div className="flex-1" />
         {lastInd && (
           <span
-            className="text-[11px] font-semibold px-2 py-0.5 rounded border"
-            style={zoneColor
-              ? { color: zoneColor, background: zoneColor + '22', borderColor: zoneColor + '55' }
-              : undefined}
+            className="text-[11px] font-semibold px-2.5 py-1 rounded-md"
+            style={zoneColor ? { color: zoneColor, background: zoneColor + '28' } : undefined}
           >
             Zone {lastInd.zone}
           </span>
@@ -366,21 +338,21 @@ export default function PriceChart({
       </div>
 
       {/* OHLCV info */}
-      <div className="flex flex-wrap items-center gap-2.5 px-3 py-1 min-h-6 text-[11px] tabular-nums border-b border-border">
+      <div className="flex flex-wrap items-center gap-3.5 px-4 py-1.5 min-h-6 text-[11px] font-mono tabular-nums border-b border-border text-secondary">
         {displayData ? (
           <>
-            <span className="text-secondary">O&nbsp;<b className={ohlcClass}>{formatPrice(displayData.open)}</b></span>
-            <span className="text-secondary">H&nbsp;<b className={ohlcClass}>{formatPrice(displayData.high)}</b></span>
-            <span className="text-secondary">L&nbsp;<b className={ohlcClass}>{formatPrice(displayData.low)}</b></span>
-            <span className="text-secondary">C&nbsp;<b className={ohlcClass}>{formatPrice(displayData.close)}</b></span>
+            <span>O&nbsp;<b className={ohlcClass}>{formatPrice(displayData.open)}</b></span>
+            <span>H&nbsp;<b className="text-bull">{formatPrice(displayData.high)}</b></span>
+            <span>L&nbsp;<b className="text-bear">{formatPrice(displayData.low)}</b></span>
+            <span>C&nbsp;<b className={ohlcClass}>{formatPrice(displayData.close)}</b></span>
             {displayData.volume != null && (
-              <span className="text-secondary">Vol&nbsp;<b className="text-primary">{formatVolume(displayData.volume)}</b></span>
+              <span>Vol&nbsp;<b className="text-primary">{formatVolume(displayData.volume)}</b></span>
             )}
             {lastInd && (
-              <>
-                <span style={{ color: colors.chart.emaFast }}>MA12&nbsp;{formatPrice(lastInd.emaFast)}</span>
-                <span style={{ color: colors.chart.emaSlow }}>MA26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
-              </>
+              <span className="ml-auto inline-flex gap-3">
+                <span style={{ color: colors.chart.emaFast }}>— EMA 12&nbsp;{formatPrice(lastInd.emaFast)}</span>
+                <span style={{ color: colors.chart.emaSlow }}>— EMA 26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
+              </span>
             )}
           </>
         ) : (
@@ -391,26 +363,12 @@ export default function PriceChart({
       {/* Chart canvas */}
       <div className="relative">
         {candles.length === 0 && (
-          <div className="absolute inset-0 z-10 flex h-[460px] items-center justify-center text-xs text-secondary/70">
+          <div className="absolute inset-0 z-10 flex h-[380px] items-center justify-center text-xs text-secondary/70">
             Loading candles…
           </div>
         )}
         <div ref={containerRef} className={`w-full ${candles.length === 0 ? 'invisible' : 'visible'}`} />
       </div>
-
-      {/* Open positions */}
-      {positions.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-border px-3 py-2">
-          {positions.map((p, i) => (
-            <div key={p.id ?? i} className="flex items-center gap-5 text-[11px] tabular-nums">
-              <span className={`min-w-11 text-xs font-bold ${p.side === 'long' ? 'text-bull' : 'text-bear'}`}>
-                {p.side === 'long' ? 'LONG' : 'SHORT'}
-              </span>
-              <span className="text-secondary">Entry&nbsp;<b className="text-primary">{formatPrice(p.entryPrice)}</b></span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
