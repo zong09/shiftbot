@@ -34,3 +34,7 @@ Thumbs.db
 
 # PostgreSQL data (bind mount)
 pgdata/
+docs
+scratch
+.cursor/
+FIX_PLAN.md
