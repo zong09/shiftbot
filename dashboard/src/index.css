@@ -28,7 +28,7 @@
   --bull: #2f8f5f;
   --bear: #c65f49;
   --warn: #b5883f;
-  --split-cols: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  --split-cols: minmax(0, 7fr) minmax(0, 3fr);
 }
 
 .dark {

@@ -138,7 +138,7 @@ export default function App() {
   const banner = BANNER[mode];
   const rootStyle = {
     '--accent': accentFor(mode),
-    '--split-cols': layout === 'split' ? 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))' : '1fr',
+    '--split-cols': layout === 'split' ? 'minmax(0, 7fr) minmax(0, 3fr)' : '1fr',
   };
 
   return (
@@ -283,46 +283,44 @@ export default function App() {
               onSymbolChange={setChartSymbol}
             />
 
-            {/* Chart + rail — grid columns follow the Split/Stack layout */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'var(--split-cols)', gap: 16, alignItems: 'start' }}>
-              <div className="min-w-0">
-                <PriceChart
-                  candles={candles}
-                  indicators={indicators}
-                  trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
-                  symbol={chartSymbol}
-                  chartTimeframe={chartTimeframe}
-                  onTimeframeChange={setChartTimeframe}
-                />
-              </div>
-              <div className="min-w-0">
-                <StatusCard
-                  status={status}
-                  pairs={settings?.[mode] ?? []}
-                  activeSymbol={chartSymbol}
-                  onSymbolChange={setChartSymbol}
-                  onStatusChange={async (newStatus) => {
-                    const activeSettings = settings?.[mode]?.find(p => p.symbol === chartSymbol);
-                    if (activeSettings) {
-                      await updateSettings(mode, { symbol: chartSymbol, status: newStatus });
-                      await loadData(mode, chartTimeframe, chartSymbol);
-                    }
-                  }}
-                />
-                <Positions
-                  positions={status?.openPositions ?? []}
-                  pairs={status?.pairs ?? []}
-                  onClose={async (id) => {
-                    try {
-                      await closePosition(id);
-                      await loadData(mode, chartTimeframe, chartSymbol);
-                    } catch (err) {
-                      setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
-                    }
-                  }}
-                />
-              </div>
+            {/* Chart + Bot Status — 7fr/3fr in split, one column in stack */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'var(--split-cols)', gap: 16, alignItems: 'stretch' }}>
+              <PriceChart
+                candles={candles}
+                indicators={indicators}
+                trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
+                symbol={chartSymbol}
+                accent={accentFor(mode)}
+                chartTimeframe={chartTimeframe}
+                onTimeframeChange={setChartTimeframe}
+              />
+              <StatusCard
+                status={status}
+                pairs={settings?.[mode] ?? []}
+                activeSymbol={chartSymbol}
+                onSymbolChange={setChartSymbol}
+                onStatusChange={async (newStatus) => {
+                  const activeSettings = settings?.[mode]?.find(p => p.symbol === chartSymbol);
+                  if (activeSettings) {
+                    await updateSettings(mode, { symbol: chartSymbol, status: newStatus });
+                    await loadData(mode, chartTimeframe, chartSymbol);
+                  }
+                }}
+              />
             </div>
+
+            <Positions
+              positions={status?.openPositions ?? []}
+              pairs={status?.pairs ?? []}
+              onClose={async (id) => {
+                try {
+                  await closePosition(id);
+                  await loadData(mode, chartTimeframe, chartSymbol);
+                } catch (err) {
+                  setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
+                }
+              }}
+            />
 
             <TradeHistory trades={trades} />
           </div>

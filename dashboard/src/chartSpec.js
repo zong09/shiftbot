@@ -1,9 +1,9 @@
 // Values transcribed from ShiftBot.dc.html buildChart method.
 // Colors deliberately live in theme.js instead.
 
-export const CHART_H = 380;  // design L840
+export const CHART_H = 360;  // design L840
 
-export const PAD = { L: 6, R: 64, T: 10, B: 22 };  // design L480
+export const PAD = { L: 8, R: 64, T: 14, B: 26 };  // design L480
 
 export const GRID_LINES = 5;  // design L492 (loop g<=4 → 5 lines)
 
