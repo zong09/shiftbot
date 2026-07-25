@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useTheme } from '../ThemeContext.jsx';
 
@@ -6,6 +6,7 @@ const TH_CLASS = 'px-[10px] py-[8px] text-left text-[10px] font-semibold trackin
 const TD_CLASS = 'px-[10px] py-[10px] tabular-nums';
 // The Zone cell is the one body cell the design leaves in the body font, not mono.
 const TD_PLAIN = 'px-[10px] py-[10px]';
+const PAGE_SIZE = 20;
 
 const ACTION_LABEL = {
   OPEN_LONG:   { label: 'Open Long',   className: 'text-bull' },
@@ -29,6 +30,12 @@ export default function TradeHistory({ trades = [] }) {
   const pnlData = chartTrades
     .filter(t => t.pnl != null)
     .map((t, i) => ({ name: `#${i + 1}`, pnl: parseFloat(t.pnl.toFixed(2)) }));
+
+  // Pagination
+  const [page, setPage] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(tableTrades.length / PAGE_SIZE));
+  useEffect(() => { if (page > pageCount - 1) setPage(0); }, [pageCount, page]);
+  const pageTrades = tableTrades.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   return (
     <div className="bg-surface border border-border rounded-2xl px-[18px] py-[16px] mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
@@ -75,11 +82,11 @@ export default function TradeHistory({ trades = [] }) {
         <tbody>
           {tableTrades.length === 0 ? (
             <tr><td colSpan={7} className="text-center text-secondary/70 py-8">ยังไม่มี trade</td></tr>
-          ) : tableTrades.map((t, i) => {
+          ) : pageTrades.map((t, i) => {
             const meta = ACTION_LABEL[t.action] ?? { label: t.action, className: 'text-primary' };
             const hasPnl = t.pnl != null;
             return (
-              <tr key={i} className="border-t border-border hover:bg-surface-alt/60 transition-colors duration-[120ms]">
+              <tr key={t.id ?? `${t.timestamp}-${page * PAGE_SIZE + i}`} className="border-t border-border hover:bg-surface-alt/60 transition-colors duration-[120ms]">
                 <td className={`${TD_CLASS} font-semibold text-primary`}>{t.symbol?.replace(':USDT', '')}</td>
                 <td className={`${TD_CLASS} font-semibold ${meta.className}`}>{meta.label}</td>
                 <td className={TD_CLASS}>{t.price?.toLocaleString()}</td>
@@ -97,6 +104,31 @@ export default function TradeHistory({ trades = [] }) {
         </tbody>
       </table>
       </div>
+
+      {tableTrades.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between mt-[12px]">
+          <span className="text-[11px] text-secondary">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, tableTrades.length)} of {tableTrades.length}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-[11px] py-[5px] rounded-[7px] text-[11px] font-mono font-semibold leading-none cursor-pointer border transition-all duration-150 text-secondary border-border disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ‹ Prev
+            </button>
+            <span className="text-[11px] font-mono text-secondary tabular-nums">{page + 1} / {pageCount}</span>
+            <button
+              onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+              disabled={page >= pageCount - 1}
+              className="px-[11px] py-[5px] rounded-[7px] text-[11px] font-mono font-semibold leading-none cursor-pointer border transition-all duration-150 text-secondary border-border disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next ›
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
