@@ -239,7 +239,6 @@ export default function App() {
           <Settings
             settings={settings}
             activeMode={mode}
-            onModeChange={setMode}
             onSave={async (m, symbol, data) => {
               await updateSettings(m, { symbol, ...data });
               if (m === mode && symbol === chartSymbol && data.timeframe) {
@@ -290,7 +289,6 @@ export default function App() {
                 <PriceChart
                   candles={candles}
                   indicators={indicators}
-                  positions={(status?.openPositions ?? []).filter(p => p.symbol === chartSymbol)}
                   trades={(trades ?? []).filter(t => t.symbol === chartSymbol)}
                   symbol={chartSymbol}
                   chartTimeframe={chartTimeframe}

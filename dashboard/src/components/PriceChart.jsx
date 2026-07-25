@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, CrosshairMode } from 'lightweight-charts';
 import { useTheme } from '../ThemeContext.jsx';
 import { zoneByNumber, zoneBadgeStyle } from '../theme.js';
@@ -28,7 +28,7 @@ function zoneRgba(hex, alpha) {
 const TZ_OFFSET_SEC = 7 * 3600;
 
 // Returns null when the event falls farther than one bar from any loaded candle,
-// so off-range positions/trades don't glue a misleading marker to the edge candle
+// so off-range fills don't glue a misleading marker to the edge candle
 function snapToNearestCandle(openTimeMs, series) {
   if (!series.length) return null;
   const targetSec = Math.floor(new Date(openTimeMs).getTime() / 1000) + TZ_OFFSET_SEC;
@@ -37,6 +37,35 @@ function snapToNearestCandle(openTimeMs, series) {
   );
   const barSec = series.length > 1 ? series[1].time - series[0].time : 3600;
   return Math.abs(nearest.time - targetSec) <= barSec ? nearest : null;
+}
+
+// Entry/close marker geometry, verbatim from the design handoff (ShiftBot.dc.html):
+// entry = filled triangle offset from the fill price, close = hollow diamond on the
+// price, joined by a dashed connector.
+const MK = { r: 6.5, offset: 14, closeR: 6, hitR: 11 };
+
+// Close-type actions. The log records SL_HIT / TP_HIT / SYNC_CLOSE without a side, so
+// pairing leans on maxPositions = 1 — the close belongs to the one pending open.
+const CLOSE_ACTIONS = ['CLOSE_LONG', 'CLOSE_SHORT', 'SL_HIT', 'TP_HIT', 'SYNC_CLOSE'];
+
+// Folds the flat action log into entry→close legs. An open with no close yet (a live
+// position) keeps its entry marker and draws no diamond or connector, as in the design.
+function pairTrades(trades) {
+  const legs = [];
+  let pending = null;
+  [...trades]
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .forEach(t => {
+      if (t.action === 'OPEN_LONG' || t.action === 'OPEN_SHORT') {
+        if (pending) legs.push({ entry: pending, close: null });
+        pending = t;
+      } else if (CLOSE_ACTIONS.includes(t.action) && pending) {
+        legs.push({ entry: pending, close: t });
+        pending = null;
+      }
+    });
+  if (pending) legs.push({ entry: pending, close: null });
+  return legs.map(l => ({ ...l, long: l.entry.action === 'OPEN_LONG' }));
 }
 
 function formatPrice(v) {
@@ -54,7 +83,6 @@ function formatVolume(v) {
 export default function PriceChart({
   candles = [],
   indicators = [],
-  positions = [],
   trades = [],
   symbol,
   chartTimeframe = '1h',
@@ -74,6 +102,10 @@ export default function PriceChart({
   colorsRef.current = colors;
 
   const [hover, setHover] = useState(null);
+  const [markerHover, setMarkerHover] = useState(null);
+  // Bumped whenever the trade markers' pixel coordinates go stale (pan, zoom, resize,
+  // new data) — the overlay reads them from the chart during render.
+  const [coordTick, setCoordTick] = useState(0);
   const [bandGradient, setBandGradient] = useState(null);
   // Plot-area insets measured off the chart: the right price scale and the bottom time
   // axis are not plot area, and the zone band must not bleed under either.
@@ -178,13 +210,24 @@ export default function PriceChart({
 
     chartRef.current = chart;
 
+    // rAF-coalesced: pan/zoom fires per frame, one re-render per frame is enough
+    let raf = 0;
+    const bumpCoords = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; setCoordTick(t => t + 1); });
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(bumpCoords);
+
     const ro = new ResizeObserver(entries => {
       chart.applyOptions({ width: entries[0].contentRect.width });
       measurePlot();
+      bumpCoords();
     });
     ro.observe(containerRef.current);
 
     return () => {
+      if (raf) cancelAnimationFrame(raf);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(bumpCoords);
       ro.disconnect();
       chart.remove();
       chartRef.current  = null;
@@ -277,49 +320,6 @@ export default function PriceChart({
       })));
     }
 
-    const posMarkers = positions
-      .filter(p => p.openTime)
-      .map(p => {
-        const nearest = snapToNearestCandle(p.openTime, series);
-        if (!nearest) return null;
-        return {
-          time:     nearest.time,
-          position: p.side === 'long' ? 'belowBar' : 'aboveBar',
-          color:    p.side === 'long' ? colors.bull : colors.bear,
-          shape:    p.side === 'long' ? 'arrowUp'   : 'arrowDown',
-          text:     `${p.side === 'long' ? 'L' : 'S'} @${Number(p.entryPrice).toLocaleString()}`,
-          size:     2,
-        };
-      })
-      .filter(Boolean);
-
-    const tradeMarkers = trades
-      .filter(t => t.timestamp && (t.action.includes('LONG') || t.action.includes('SHORT') || t.action.includes('HIT')))
-      .map(t => {
-        const nearest = snapToNearestCandle(t.timestamp, series);
-        if (!nearest) return null;
-        const isLongOpen = t.action === 'OPEN_LONG';
-        const isLongClose = t.action === 'CLOSE_LONG' || t.action === 'SL_HIT' || t.action === 'TP_HIT';
-        const isShortOpen = t.action === 'OPEN_SHORT';
-        const isShortClose = t.action === 'CLOSE_SHORT';
-
-        let position = 'belowBar', color = colors.bull, shape = 'circle', text = '';
-        if (isLongOpen) {
-          position = 'belowBar'; color = colors.bull; shape = 'circle'; text = `En L @${Number(t.price).toLocaleString()}`;
-        } else if (isLongClose) {
-          position = 'aboveBar'; color = colors.bear; shape = 'square'; text = `Ex L @${Number(t.price).toLocaleString()}`;
-        } else if (isShortOpen) {
-          position = 'aboveBar'; color = colors.bear; shape = 'circle'; text = `En S @${Number(t.price).toLocaleString()}`;
-        } else if (isShortClose) {
-          position = 'belowBar'; color = colors.bull; shape = 'square'; text = `Ex S @${Number(t.price).toLocaleString()}`;
-        }
-
-        return { time: nearest.time, position, color, shape, text, size: 1 };
-      })
-      .filter(Boolean);
-
-    candleRef.current.setMarkers([...posMarkers, ...tradeMarkers].sort((a, b) => a.time - b.time));
-
     priceLineRefs.current.forEach(pl => { try { candleRef.current.removePriceLine(pl); } catch (_) {} });
     priceLineRefs.current = [];
     // only fit when the underlying data changed — a theme-only re-run must not reset zoom/pan
@@ -330,7 +330,10 @@ export default function PriceChart({
     }
     // price-scale width depends on the label text, so re-measure whenever data changes
     measurePlot();
-  }, [candles, indicators, positions, trades, colors]);
+    // series data is only on the chart now that this effect has run — the marker overlay
+    // could not have read valid coordinates during the render that preceded it
+    setCoordTick(t => t + 1);
+  }, [candles, indicators, trades, colors]);
 
   useEffect(() => {
     if (!ema12Ref.current || !ema26Ref.current || !indicators.length) return;
@@ -338,6 +341,69 @@ export default function PriceChart({
     ema12Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaFast })));
     ema26Ref.current.setData(indicators.map(d => ({ time: Math.floor(d.timestamp / 1000) + offsetSec, value: d.emaSlow })));
   }, [indicators]);
+
+  // Trade markers ride in an SVG overlay rather than series markers: the design's stems,
+  // hollow diamonds and dashed entry→close connectors are all beyond what
+  // lightweight-charts' built-in marker shapes can draw. Coordinates come straight off
+  // the chart, so the layer recomputes whenever coordTick moves.
+  const markerLayer = useMemo(() => {
+    const chart  = chartRef.current;
+    const cSer   = candleRef.current;
+    const series = seriesData.current;
+    if (!chart || !cSer || !series.length) return [];
+
+    const ts = chart.timeScale();
+    // null when the fill falls outside the loaded candles — never clamped, so a marker is
+    // either on its own candle or absent. A fill that is loaded but panned off-screen
+    // returns an out-of-bounds coordinate instead, which the SVG's own clip hides.
+    const at = t => {
+      const nearest = snapToNearestCandle(t.timestamp, series);
+      if (!nearest) return null;
+      const x = ts.timeToCoordinate(nearest.time);
+      const y = cSer.priceToCoordinate(Number(t.price));
+      return x == null || y == null ? null : { x, y };
+    };
+
+    const els = [];
+    pairTrades(trades).forEach((leg, k) => {
+      const e = at(leg.entry);
+      if (!e) return;
+      const { long } = leg;
+      const col      = long ? colors.bull : colors.bear;
+      const closeCol = long ? colors.chart.closeLong : colors.chart.closeShort;
+      const r  = MK.r;
+      const ty = e.y + (long ? MK.offset : -MK.offset);
+      const tri = long
+        ? `${e.x - r},${ty + r} ${e.x + r},${ty + r} ${e.x},${ty - r}`
+        : `${e.x - r},${ty - r} ${e.x + r},${ty - r} ${e.x},${ty + r}`;
+
+      const c = leg.close ? at(leg.close) : null;
+      if (c) {
+        const cr = MK.closeR;
+        els.push(
+          <line key={`cn${k}`} x1={e.x} y1={e.y} x2={c.x} y2={c.y}
+                stroke={closeCol} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />,
+          <polygon key={`cm${k}`}
+                   points={`${c.x},${c.y - cr} ${c.x + cr},${c.y} ${c.x},${c.y + cr} ${c.x - cr},${c.y}`}
+                   fill={colors.surface} stroke={closeCol} strokeWidth="1.8" />,
+          <circle key={`ch${k}`} cx={c.x} cy={c.y} r={MK.hitR} fill="transparent"
+                  className="pointer-events-auto cursor-pointer"
+                  onMouseEnter={() => setMarkerHover({ kind: 'close', trade: leg.close, long, x: c.x, y: c.y, above: true })}
+                  onMouseLeave={() => setMarkerHover(null)} />,
+        );
+      }
+      els.push(
+        <line key={`ml${k}`} x1={e.x} y1={e.y} x2={e.x} y2={ty + (long ? -r : r)}
+              stroke={col} strokeWidth="1" opacity="0.55" />,
+        <polygon key={`mt${k}`} points={tri} fill={col} stroke={colors.surface} strokeWidth="1.2" />,
+        <circle key={`mh${k}`} cx={e.x} cy={ty} r={MK.hitR} fill="transparent"
+                className="pointer-events-auto cursor-pointer"
+                onMouseEnter={() => setMarkerHover({ kind: 'entry', trade: leg.entry, long, x: e.x, y: e.y, above: long })}
+                onMouseLeave={() => setMarkerHover(null)} />,
+      );
+    });
+    return els;
+  }, [trades, colors, coordTick]);
 
   const lastInd     = indicators[indicators.length - 1];
   const lastCandle  = candles[candles.length - 1];
@@ -438,6 +504,54 @@ export default function PriceChart({
           </div>
         )}
         <div ref={containerRef} className={`relative w-full ${candles.length === 0 ? 'invisible' : 'visible'}`} />
+        {/* Trade marker overlay. Transparent to the mouse apart from the marker hit
+            circles, so the crosshair keeps feeding the OHLCV readout above. */}
+        {markerLayer.length > 0 && (
+          <svg
+            className="absolute left-0 top-0 pointer-events-none overflow-hidden"
+            style={{ right: plotInset.right, height: CHART_HEIGHT - plotInset.bottom }}
+          >
+            {markerLayer}
+          </svg>
+        )}
+        {markerHover && (() => {
+          const { kind, trade, long, above } = markerHover;
+          const isClose = kind === 'close';
+          const sideCol = long ? colors.bull : colors.bear;
+          const pnlCol  = trade.pnl >= 0 ? colors.bull : colors.bear;
+          return (
+            <div
+              className="absolute z-20 pointer-events-none whitespace-nowrap bg-surface border border-border rounded-[9px] px-[11px] py-2 shadow-[0_8px_24px_-10px_rgba(0,0,0,0.45)]"
+              style={{
+                left: markerHover.x,
+                top: markerHover.y,
+                transform: `translate(-50%,${above ? '-118%' : '18%'})`,
+              }}
+            >
+              <div className="flex items-center gap-[7px] mb-[5px]">
+                <span className="text-[11px] font-bold tracking-[0.04em]" style={{ color: isClose ? pnlCol : sideCol }}>
+                  {isClose ? 'CLOSE' : 'ENTRY'} · {long ? 'LONG' : 'SHORT'}
+                </span>
+                <span className="text-[10px] font-semibold px-[7px] py-[2px] rounded-[5px]" style={zoneBadgeStyle(trade.zone)}>
+                  Zone {trade.zone}
+                </span>
+              </div>
+              <div className="font-mono text-[13px] font-semibold text-primary">
+                {symbol?.replace(':USDT', '')} · {formatPrice(trade.price)}
+              </div>
+              {isClose ? (
+                <div className="text-[11px] mt-[3px]">
+                  <span className="text-secondary">PnL </span>
+                  <span className="font-mono font-semibold" style={{ color: pnlCol }}>
+                    {trade.pnl >= 0 ? '+' : ''}{Number(trade.pnl ?? 0).toFixed(2)} USDT
+                  </span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-secondary mt-[3px]">qty {trade.quantity}</div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

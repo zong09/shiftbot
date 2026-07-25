@@ -277,9 +277,9 @@ function AddPairRow({ mode, onAdd }) {
   );
 }
 
-export default function Settings({ settings, activeMode, onModeChange, onSave, onAddPair, onRemovePair }) {
-  const [tab, setTab] = useState(activeMode ?? 'live');
-  useEffect(() => { if (activeMode) setTab(activeMode); }, [activeMode]);
+export default function Settings({ settings, activeMode, onSave, onAddPair, onRemovePair }) {
+  // The design has no mode switch in this card — the header segmented control owns it
+  const tab = activeMode ?? 'live';
 
   const pairs = Array.isArray(settings?.[tab]) ? settings[tab] : [];
   const modeColor = tab === 'sandbox' ? '#b5883f' : '#7895b2';
@@ -294,13 +294,6 @@ export default function Settings({ settings, activeMode, onModeChange, onSave, o
           ตั้งค่ากลยุทธ์การเทรดสำหรับแต่ละคู่เหรียญของ{' '}
           <span className="font-semibold" style={{ color: modeColor }}>{tab === 'sandbox' ? 'Sandbox Mode' : 'Live Mode'}</span>
         </p>
-
-        {/* Mode tabs */}
-        <div className="inline-flex items-center gap-1 bg-surface-alt border border-border rounded-lg p-1 mb-5">
-          {[['live', 'Live'], ['sandbox', 'Sandbox']].map(([key, label]) => (
-            <button key={key} className={chipClass(tab === key)} onClick={() => { setTab(key); onModeChange?.(key); }}>{label}</button>
-          ))}
-        </div>
 
         {pairs.length === 0 ? (
           <div className="text-secondary text-[13px] mb-3">ยังไม่มี pair — เพิ่มด้านล่าง</div>

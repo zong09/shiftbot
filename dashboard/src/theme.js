@@ -18,6 +18,9 @@ export const TOKENS = {
       crosshairLabel: '#2c343d',
       emaFast: '#c9a227',
       emaSlow: '#7d5fd6',
+      // Trade close markers, keyed by the side that was closed (design handoff)
+      closeLong:  '#5c9fd6',
+      closeShort: '#d6a44a',
     },
   },
   light: {
@@ -37,6 +40,8 @@ export const TOKENS = {
       crosshairLabel: '#f8f3e9',
       emaFast: '#c9a227',
       emaSlow: '#7d5fd6',
+      closeLong:  '#2f7dc1',
+      closeShort: '#c98a2a',
     },
   },
 };
