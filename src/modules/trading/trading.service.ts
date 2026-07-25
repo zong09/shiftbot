@@ -712,17 +712,22 @@ export class TradingService implements OnApplicationBootstrap {
           const openTimeMs = new Date(localPos.openTime).getTime();
           const realized = await this.fetchRealizedPnl(exchange, localPos.symbol, openTimeMs);
 
+          // The ledger needs a close price no matter where the PnL came from. This used to
+          // be resolved only on the estimate path, so every SYNC_CLOSE that got a realized
+          // PnL was written with price 0 — which the dashboard then showed as the close
+          // price and the chart used to place the marker.
+          let price: number;
+          try {
+            const { last } = await this.marketDataService.fetchTicker(localPos.symbol);
+            price = Number.isFinite(last) ? last : localPos.entryPrice;
+          } catch {
+            price = localPos.entryPrice;
+          }
+
           let pnl: number;
-          let price = 0;
           if (realized !== null) {
             pnl = realized;
           } else {
-            try {
-              const { last } = await this.marketDataService.fetchTicker(localPos.symbol);
-              price = Number.isFinite(last) ? last : localPos.entryPrice;
-            } catch {
-              price = localPos.entryPrice;
-            }
             pnl = localPos.side === 'long'
               ? (price - localPos.entryPrice) * localPos.quantity
               : (localPos.entryPrice - price) * localPos.quantity;

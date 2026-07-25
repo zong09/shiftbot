@@ -371,6 +371,9 @@ export default function PriceChart({
     // either on its own candle or absent. A fill that is loaded but panned off-screen
     // returns an out-of-bounds coordinate instead, which the SVG's own clip hides.
     const at = t => {
+      // Older SYNC_CLOSE rows were written with price 0; placing a marker there drags it
+      // and its connector off the price scale
+      if (!(Number(t.price) > 0)) return null;
       const nearest = snapToNearestCandle(t.timestamp, series);
       if (!nearest) return null;
       const x = ts.timeToCoordinate(nearest.time);
