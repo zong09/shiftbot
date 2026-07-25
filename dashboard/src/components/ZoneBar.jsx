@@ -10,17 +10,15 @@ export default function ZoneBar({ currentZone }) {
         return (
           <div
             key={z.zone}
-            className={`flex-1 min-w-0 rounded-xl py-4 px-1 text-center transition-all duration-200 ${
-              currentZone && !active ? 'opacity-45' : ''
-            }`}
+            className="flex-1 min-w-0 rounded-[8px] py-[9px] px-1 pb-2 text-center transition-all duration-200"
             style={{
               background: z.color,
               color: z.text,
               boxShadow: active ? '0 0 0 2px var(--surface), 0 0 0 4px var(--accent)' : 'none',
             }}
           >
-            <div className="font-mono text-2xl font-bold leading-none">{z.zone}</div>
-            <div className="text-[11px] font-semibold leading-tight mt-1.5 opacity-90 overflow-hidden">{z.name}</div>
+            <div className="font-mono text-[15px] font-bold leading-none">{z.zone}</div>
+            <div className="text-[8px] font-semibold leading-[1.15] mt-0.5 opacity-90 overflow-hidden">{z.name}</div>
           </div>
         );
       })}

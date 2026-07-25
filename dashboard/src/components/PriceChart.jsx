@@ -1,9 +1,27 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CrosshairMode } from 'lightweight-charts';
 import { useTheme } from '../ThemeContext.jsx';
-import { zoneByNumber } from '../theme.js';
+import { zoneByNumber, zoneBadgeStyle } from '../theme.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+const CHART_HEIGHT = 380;
+
+// Where the two price scales put their series inside the plot area. Kept next to the
+// applyOptions calls below that set them — the zone band has to line up with these.
+const PRICE_MARGINS = { top: 0.05, bottom: 0.2 };
+const VOL_MARGINS   = { top: 0.82, bottom: 0 };
+
+// Legend swatch — the 6-stop condensed zone ramp from the design handoff
+const ZONE_RAMP = 'linear-gradient(90deg,#3f9e6b,#84b98c,#c9c48a,#dcbf82,#cf8570,#c1614e)';
+
+// Volume bars reuse the candle's zone color at 42% (design handoff)
+function zoneRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 // Fixed Asia/Bangkok offset (UTC+7, no DST) — keeps chart times aligned with the
 // tables, which format explicitly in Asia/Bangkok regardless of the browser TZ
@@ -56,6 +74,19 @@ export default function PriceChart({
   colorsRef.current = colors;
 
   const [hover, setHover] = useState(null);
+  const [bandGradient, setBandGradient] = useState(null);
+  // Plot-area insets measured off the chart: the right price scale and the bottom time
+  // axis are not plot area, and the zone band must not bleed under either.
+  const [plotInset, setPlotInset] = useState({ right: 0, bottom: 0 });
+
+  const measurePlot = () => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    setPlotInset({
+      right:  chart.priceScale('right').width(),
+      bottom: chart.timeScale().height(),
+    });
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -63,9 +94,10 @@ export default function PriceChart({
 
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
-      height: 380,
+      height: CHART_HEIGHT,
       layout: {
-        background: { color: c.surface },
+        // transparent so the CDC zone gradient band behind the canvas shows through
+        background: { color: 'rgba(0,0,0,0)' },
         textColor:  c.textSecondary,
         fontFamily: "'IBM Plex Mono', monospace",
         fontSize:   11,
@@ -81,7 +113,7 @@ export default function PriceChart({
       },
       rightPriceScale: {
         borderColor:  c.chart.grid,
-        scaleMargins: { top: 0.05, bottom: 0.2 },
+        scaleMargins: PRICE_MARGINS,
       },
       timeScale: {
         borderColor:    c.chart.grid,
@@ -96,15 +128,10 @@ export default function PriceChart({
       },
     });
 
-    // Candles are colored by direction (up/down), per the design handoff —
-    // not by CDC zone.
+    // Candles are colored per-bar by CDC zone (design handoff): rising bars are filled
+    // with the zone color, falling bars are hollow with a zone-colored border. Those
+    // colors ride on each data point, so no series-level up/down colors are set here.
     candleRef.current = chart.addCandlestickSeries({
-      upColor:          c.chart.candleUp,
-      downColor:        c.chart.candleDown,
-      borderUpColor:    c.chart.candleUp,
-      borderDownColor:  c.chart.candleDown,
-      wickUpColor:      c.chart.candleUp,
-      wickDownColor:    c.chart.candleDown,
       priceLineVisible: true,
       priceLineColor:   c.chart.crosshair,
     });
@@ -113,9 +140,7 @@ export default function PriceChart({
       priceFormat:  { type: 'volume' },
       priceScaleId: 'vol',
     });
-    chart.priceScale('vol').applyOptions({
-      scaleMargins: { top: 0.82, bottom: 0 },
-    });
+    chart.priceScale('vol').applyOptions({ scaleMargins: VOL_MARGINS });
 
     ema12Ref.current = chart.addLineSeries({
       color:            c.chart.emaFast,
@@ -155,6 +180,7 @@ export default function PriceChart({
 
     const ro = new ResizeObserver(entries => {
       chart.applyOptions({ width: entries[0].contentRect.width });
+      measurePlot();
     });
     ro.observe(containerRef.current);
 
@@ -174,7 +200,7 @@ export default function PriceChart({
     if (!chartRef.current) return;
     chartRef.current.applyOptions({
       layout: {
-        background: { color: colors.surface },
+        background: { color: 'rgba(0,0,0,0)' },
         textColor:  colors.textSecondary,
       },
       grid: {
@@ -188,15 +214,8 @@ export default function PriceChart({
       rightPriceScale: { borderColor: colors.chart.grid },
       timeScale:       { borderColor: colors.chart.grid },
     });
-    candleRef.current?.applyOptions({
-      upColor:         colors.chart.candleUp,
-      downColor:       colors.chart.candleDown,
-      borderUpColor:   colors.chart.candleUp,
-      borderDownColor: colors.chart.candleDown,
-      wickUpColor:     colors.chart.candleUp,
-      wickDownColor:   colors.chart.candleDown,
-      priceLineColor:  colors.chart.crosshair,
-    });
+    // Per-bar zone colors live on the data points; only the price line needs re-skinning.
+    candleRef.current?.applyOptions({ priceLineColor: colors.chart.crosshair });
     ema12Ref.current?.applyOptions({ color: colors.chart.emaFast });
     ema26Ref.current?.applyOptions({ color: colors.chart.emaSlow });
   }, [colors]);
@@ -205,24 +224,56 @@ export default function PriceChart({
     if (!candleRef.current || !candles.length) return;
 
     const offsetSec = TZ_OFFSET_SEC;
-    // Direction-colored candles: series carries only OHLC, so the series-level
-    // up/down colors apply.
-    const series = candles.map(c => ({
-      time:  Math.floor(c.timestamp / 1000) + offsetSec,
-      open:  c.open,
-      high:  c.high,
-      low:   c.low,
-      close: c.close,
-    }));
+
+    // Zone per candle, keyed by candle open time. calculateHistory only emits rows from
+    // index emaSlow onward, so the leading warm-up candles have no zone of their own —
+    // carry the last known zone forward, then back-fill the leading gap with the first
+    // known zone so every bar is colored, as in the design.
+    const zoneAt = new Map(indicators.map(d => [d.timestamp, d.zone]));
+    let carried = null;
+    const zones = candles.map(c => {
+      carried = zoneAt.get(c.timestamp) ?? carried;
+      return carried;
+    });
+    const firstKnown = zones.find(z => z != null) ?? null;
+    const barColors = zones.map(z => zoneByNumber(z ?? firstKnown)?.color ?? colors.textSecondary);
+
+    // The zone band behind the canvas: one gradient stop per candle, so the backdrop
+    // tracks the same zone sequence the bars do. lightweight-charts can't draw this,
+    // so it lives in a div behind the transparent chart.
+    setBandGradient(
+      barColors.length > 1
+        ? `linear-gradient(90deg,${barColors
+            .map((hex, i) => `${hex} ${((i / (barColors.length - 1)) * 100).toFixed(2)}%`)
+            .join(',')})`
+        : null,
+    );
+
+    // Zone-colored candles: rising bars filled with the zone color, falling bars hollow
+    // (surface fill, zone-colored border) — per the design handoff.
+    const series = candles.map((c, i) => {
+      const zoneColor = barColors[i];
+      const rising    = c.close >= c.open;
+      return {
+        time:      Math.floor(c.timestamp / 1000) + offsetSec,
+        open:      c.open,
+        high:      c.high,
+        low:       c.low,
+        close:     c.close,
+        color:       rising ? zoneColor : colors.surface,
+        borderColor: zoneColor,
+        wickColor:   zoneColor,
+      };
+    });
 
     seriesData.current = series;
     candleRef.current.setData(series);
 
     if (volumeRef.current) {
-      volumeRef.current.setData(candles.map(c => ({
+      volumeRef.current.setData(candles.map((c, i) => ({
         time:  Math.floor(c.timestamp / 1000) + offsetSec,
         value: c.volume ?? 0,
-        color: c.close >= c.open ? colors.chart.volBull : colors.chart.volBear,
+        color: zoneRgba(barColors[i], 0.42),
       })));
     }
 
@@ -277,6 +328,8 @@ export default function PriceChart({
       dataKeyRef.current = dataKey;
       chartRef.current.timeScale().fitContent();
     }
+    // price-scale width depends on the label text, so re-measure whenever data changes
+    measurePlot();
   }, [candles, indicators, positions, trades, colors]);
 
   useEffect(() => {
@@ -296,78 +349,95 @@ export default function PriceChart({
     volume: lastCandle.volume,
     isUp:   lastCandle.close >= lastCandle.open,
   } : null);
-  const ohlcClass  = displayData?.isUp ? 'text-bull' : 'text-bear';
-  const zoneColor  = zoneByNumber(lastInd?.zone)?.color;
+  const lastZone   = zoneByNumber(lastInd?.zone);
+  const badgeStyle = zoneBadgeStyle(lastInd?.zone);
 
   return (
-    <div
-      className="bg-surface border border-border rounded-2xl shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] mb-4 overflow-hidden"
-      style={{ boxShadow: '0 1px 2px rgba(40,48,58,.05), 0 14px 36px -28px rgba(40,48,58,.3)' }}
-    >
-      {/* Toolbar */}
-      <div className="flex items-center flex-wrap gap-2 min-h-11 px-4 py-2 border-b border-border">
-        {symbol && (
-          <span className="text-[14px] font-mono font-semibold pr-3 mr-1 border-r border-border">
-            {symbol.replace(':USDT', '')}
-          </span>
-        )}
-        <div className="flex gap-0.5">
-          {TIMEFRAMES.map(tf => (
-            <button
-              key={tf}
-              onClick={() => onTimeframeChange?.(tf)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold cursor-pointer border transition-colors duration-150 ${
-                chartTimeframe === tf
-                  ? 'bg-accent text-white border-transparent'
-                  : 'text-secondary border-border hover:text-primary'
-              }`}
-            >
-              {tf}
-            </button>
-          ))}
+    <div className="bg-surface border border-border rounded-2xl shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] mb-4 px-[18px] py-4 min-w-0">
+      {/* Header: symbol + timeframe chips, zone badge pushed right */}
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div className="flex items-center gap-2.5">
+          {symbol && (
+            <span className="text-[14px] font-mono font-semibold">
+              {symbol.replace(':USDT', '')}
+            </span>
+          )}
+          <div className="flex gap-[3px]">
+            {TIMEFRAMES.map(tf => (
+              <button
+                key={tf}
+                onClick={() => onTimeframeChange?.(tf)}
+                className={`px-[11px] py-[5px] rounded-[7px] text-[11px] font-mono font-semibold leading-none cursor-pointer border transition-all duration-150 ${
+                  chartTimeframe === tf
+                    ? 'bg-accent text-white border-transparent'
+                    : 'text-secondary border-border'
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex-1" />
-        {lastInd && (
-          <span
-            className="text-[11px] font-semibold px-2.5 py-1 rounded-md"
-            style={zoneColor ? { color: zoneColor, background: zoneColor + '28' } : undefined}
-          >
-            Zone {lastInd.zone}
+        {lastZone && (
+          <span className="text-[11px] font-semibold px-2.5 py-1 rounded-[7px]" style={badgeStyle}>
+            Zone {lastInd.zone} · {lastZone.name}
           </span>
         )}
       </div>
 
-      {/* OHLCV info */}
-      <div className="flex flex-wrap items-center gap-3.5 px-4 py-1.5 min-h-6 text-[11px] font-mono tabular-nums border-b border-border text-secondary">
+      {/* OHLCV readout */}
+      <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono tabular-nums text-secondary mb-2">
         {displayData ? (
           <>
-            <span>O&nbsp;<b className={ohlcClass}>{formatPrice(displayData.open)}</b></span>
+            <span>O&nbsp;<b className="text-primary">{formatPrice(displayData.open)}</b></span>
             <span>H&nbsp;<b className="text-bull">{formatPrice(displayData.high)}</b></span>
             <span>L&nbsp;<b className="text-bear">{formatPrice(displayData.low)}</b></span>
-            <span>C&nbsp;<b className={ohlcClass}>{formatPrice(displayData.close)}</b></span>
+            <span>C&nbsp;<b style={{ color: displayData.isUp ? '#26a69a' : '#ef5350' }}>{formatPrice(displayData.close)}</b></span>
             {displayData.volume != null && (
               <span>Vol&nbsp;<b className="text-primary">{formatVolume(displayData.volume)}</b></span>
             )}
-            {lastInd && (
-              <span className="ml-auto inline-flex gap-3">
-                <span style={{ color: colors.chart.emaFast }}>— EMA 12&nbsp;{formatPrice(lastInd.emaFast)}</span>
-                <span style={{ color: colors.chart.emaSlow }}>— EMA 26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
+            <span className="ml-auto inline-flex items-center gap-3">
+              <span className="inline-flex items-center gap-[5px]">
+                <span className="w-[44px] h-2 rounded-[4px]" style={{ background: ZONE_RAMP }} />
+                CDC Zone
               </span>
-            )}
+              {lastInd && (
+                <>
+                  <span style={{ color: colors.chart.emaFast }}>— EMA 12&nbsp;{formatPrice(lastInd.emaFast)}</span>
+                  <span style={{ color: colors.chart.emaSlow }}>— EMA 26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
+                </>
+              )}
+            </span>
           </>
         ) : (
           <span className="text-secondary/60">—</span>
         )}
       </div>
 
-      {/* Chart canvas */}
+      {/* Chart canvas, over the CDC zone gradient band */}
       <div className="relative">
+        {bandGradient && candles.length > 0 && (() => {
+          // Plot area = canvas minus the time axis; the two bands then follow the same
+          // scale margins the price and volume scales use.
+          const plotH = CHART_HEIGHT - plotInset.bottom;
+          const band  = (top, height, opacity) => (
+            <div
+              key={top}
+              className="absolute left-0 pointer-events-none"
+              style={{ right: plotInset.right, top: plotH * top, height: plotH * height, background: bandGradient, opacity }}
+            />
+          );
+          return [
+            band(PRICE_MARGINS.top, 1 - PRICE_MARGINS.top - PRICE_MARGINS.bottom, 0.16),
+            band(VOL_MARGINS.top, 1 - VOL_MARGINS.top - VOL_MARGINS.bottom, 0.1),
+          ];
+        })()}
         {candles.length === 0 && (
-          <div className="absolute inset-0 z-10 flex h-[380px] items-center justify-center text-xs text-secondary/70">
+          <div className="absolute inset-0 z-10 flex items-center justify-center text-xs text-secondary/70" style={{ height: CHART_HEIGHT }}>
             Loading candles…
           </div>
         )}
-        <div ref={containerRef} className={`w-full ${candles.length === 0 ? 'invisible' : 'visible'}`} />
+        <div ref={containerRef} className={`relative w-full ${candles.length === 0 ? 'invisible' : 'visible'}`} />
       </div>
     </div>
   );

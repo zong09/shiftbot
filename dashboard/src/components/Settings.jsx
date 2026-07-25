@@ -7,18 +7,18 @@ const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const CARD_SHADOW = '0 1px 2px rgba(40,48,58,.05), 0 14px 36px -28px rgba(40,48,58,.3)';
 
 const FIELD_CLASS =
-  'w-full bg-surface-alt border border-border rounded-lg px-3 py-2.5 text-[13px] text-primary ' +
-  'focus:border-accent focus:ring-2 focus:ring-accent/20 focus:outline-none transition-colors duration-150';
+  'w-full bg-surface-alt border border-border rounded-[9px] px-[12px] py-[10px] text-[13px] text-primary ' +
+  'transition-colors duration-150';
 
 const chipClass = (active) =>
-  `px-4 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-all duration-150 ${
+  `px-[16px] py-[7px] rounded-[8px] text-[12.5px] font-semibold leading-none cursor-pointer transition-all duration-150 ${
     active ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'
   }`;
 
 function Section({ children }) {
   return (
     <section
-      className="bg-surface border border-border rounded-2xl px-5.5 py-5 mb-4 max-w-[920px] mx-auto"
+      className="bg-surface border border-border rounded-2xl px-[22px] py-[20px] mb-4 max-w-[920px] mx-auto"
       style={{ boxShadow: CARD_SHADOW }}
     >
       {children}
@@ -49,14 +49,14 @@ function Appearance() {
 
   return (
     <Section>
-      <h2 className="text-[18px] font-semibold m-0 mb-1">รูปลักษณ์ · Appearance</h2>
-      <p className="text-[13px] text-secondary m-0 mb-4.5">ปรับธีมสีของแดชบอร์ด — เลือกโหมดสว่าง/มืด และสีหลักของแต่ละโหมดการเทรด</p>
+      <h2 className="text-[18px] font-semibold m-0 mb-[4px]">รูปลักษณ์ · Appearance</h2>
+      <p className="text-[13px] text-secondary m-0 mb-[18px]">ปรับธีมสีของแดชบอร์ด — เลือกโหมดสว่าง/มืด และสีหลักของแต่ละโหมดการเทรด</p>
 
-      <div className="flex flex-col gap-4.5">
+      <div className="flex flex-col gap-[18px]">
         {/* Theme mode */}
         <div className="flex items-center gap-3.5 flex-wrap">
-          <span className="text-[11px] font-semibold tracking-wide text-secondary uppercase min-w-[96px]">โหมดธีม</span>
-          <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-lg">
+          <span className="text-[11px] font-semibold tracking-[0.07em] text-secondary uppercase min-w-[96px]">โหมดธีม</span>
+          <div className="flex gap-[4px] p-[4px] bg-surface-alt border border-border rounded-[10px]">
             {[['light', 'สว่าง'], ['dark', 'มืด']].map(([key, label]) => (
               <button key={key} className={chipClass(theme === key)} onClick={() => setTheme(key)}>{label}</button>
             ))}
@@ -65,7 +65,7 @@ function Appearance() {
 
         {/* Live accent */}
         <div className="flex items-center gap-3.5 flex-wrap">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-secondary uppercase min-w-[96px]">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.07em] text-secondary uppercase min-w-[96px]">
             <span className="w-2 h-2 rounded-full" style={{ background: '#3f9e6b' }} />สีหลัก Live
           </span>
           <div className="flex gap-2.5 flex-wrap">
@@ -77,7 +77,7 @@ function Appearance() {
 
         {/* Sandbox accent */}
         <div className="flex items-center gap-3.5 flex-wrap">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-secondary uppercase min-w-[96px]">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.07em] text-secondary uppercase min-w-[96px]">
             <span className="w-2 h-2 rounded-full" style={{ background: '#b5883f' }} />สีหลัก Sandbox
           </span>
           <div className="flex gap-2.5 flex-wrap">
@@ -89,16 +89,16 @@ function Appearance() {
 
         {/* Preview + reset */}
         <div className="flex items-center gap-3 flex-wrap pt-0.5">
-          <span className="text-[11px] font-semibold tracking-wide text-secondary uppercase min-w-[96px]">พรีวิว</span>
+          <span className="text-[11px] font-semibold tracking-[0.07em] text-secondary uppercase min-w-[96px]">พรีวิว</span>
           <div
-            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-accent text-white text-[13px] font-semibold"
+            className="inline-flex items-center gap-2 px-[15px] py-[9px] rounded-[10px] bg-accent text-white text-[13px] font-semibold"
             style={{ boxShadow: '0 8px 18px -10px color-mix(in srgb, var(--accent) 70%, transparent)' }}
           >
             <span className="w-[7px] h-[7px] rounded-full bg-white" />สีหลักปัจจุบัน
           </div>
           <button
             onClick={resetAppearance}
-            className="px-3.5 py-2.5 border border-border rounded-lg bg-surface text-secondary text-[12px] font-semibold cursor-pointer hover:text-accent hover:border-accent transition-colors duration-150"
+            className="px-[15px] py-[9px] border border-border rounded-[10px] bg-surface text-secondary text-[12px] font-semibold cursor-pointer hover:text-accent hover:border-accent transition-colors duration-150"
           >
             รีเซ็ตเป็นค่าเริ่มต้น
           </button>
@@ -163,11 +163,11 @@ function PairForm({ pair, mode, onSave, onRemove }) {
   return (
     <div className="border border-border rounded-[13px] overflow-hidden bg-surface-alt mb-3">
       {/* Header row */}
-      <div onClick={() => setOpen(o => !o)} className="flex items-center gap-3 px-4 py-3.5 cursor-pointer">
+      <div onClick={() => setOpen(o => !o)} className="flex items-center gap-[12px] px-[16px] py-[14px] cursor-pointer">
         <span className="font-mono font-semibold text-sm min-w-[96px]">{pair.symbol.replace(':USDT', '')}</span>
         <button
           onClick={handleToggleEnable}
-          className="rounded-full px-3 py-[3px] text-[10px] font-mono font-semibold tracking-wide cursor-pointer border-none"
+          className="rounded-[20px] px-[12px] py-[3px] text-[10px] font-mono font-semibold tracking-[0.05em] cursor-pointer border-none"
           style={enabled
             ? { background: 'color-mix(in srgb, var(--bull) 18%, transparent)', color: 'var(--bull)' }
             : { background: 'var(--surface-alt)', color: 'var(--text-secondary)' }}
@@ -188,8 +188,8 @@ function PairForm({ pair, mode, onSave, onRemove }) {
 
       {/* Expandable settings */}
       {open && form && (
-        <div className="px-4 pt-1 pb-4.5 border-t border-border bg-surface">
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3.5 mt-4">
+        <div className="px-[16px] pt-[4px] pb-[18px] border-t border-border bg-surface">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-[14px] mt-[16px]">
             <label className="block">
               <span className="block text-[11px] font-semibold text-secondary mb-1.5">Timeframe</span>
               <select className={FIELD_CLASS} value={form.timeframe} onChange={e => set('timeframe', e.target.value)}>
@@ -221,7 +221,7 @@ function PairForm({ pair, mode, onSave, onRemove }) {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="bg-accent text-white rounded-lg px-5.5 py-2.5 text-[13px] font-semibold cursor-pointer hover:brightness-105 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-accent text-white rounded-[9px] px-[22px] py-[10px] text-[13px] font-semibold cursor-pointer hover:brightness-105 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? 'กำลังบันทึก...' : 'บันทึก'}
             </button>
@@ -262,12 +262,12 @@ function AddPairRow({ mode, onAdd }) {
         value={symbol}
         onChange={e => setSymbol(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && handleAdd()}
-        className={`${FIELD_CLASS} font-mono flex-1 min-w-[200px]`}
+        className="flex-1 min-w-[200px] bg-surface-alt border border-border rounded-[10px] px-[14px] py-[11px] text-[13px] text-primary font-mono transition-colors duration-150"
       />
       <button
         onClick={handleAdd}
         disabled={adding || !symbol.trim()}
-        className="inline-flex items-center gap-1.5 px-4.5 py-2.5 rounded-lg text-[13px] font-semibold cursor-pointer border border-accent text-accent transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="inline-flex items-center gap-1.5 px-[18px] py-[11px] rounded-[10px] text-[13px] font-semibold cursor-pointer border border-accent text-accent transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
         style={{ background: 'color-mix(in srgb, var(--accent) 12%, transparent)' }}
       >
         {adding ? '...' : '+ เพิ่ม Pair'}

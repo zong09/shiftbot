@@ -16,12 +16,8 @@ export const TOKENS = {
       grid: 'rgba(120,130,145,0.14)',
       crosshair: '#98a2ae',
       crosshairLabel: '#2c343d',
-      volBull: 'rgba(38,166,154,0.35)',
-      volBear: 'rgba(239,83,80,0.35)',
       emaFast: '#c9a227',
       emaSlow: '#7d5fd6',
-      candleUp: '#26a69a',
-      candleDown: '#ef5350',
     },
   },
   light: {
@@ -39,12 +35,8 @@ export const TOKENS = {
       grid: 'rgba(120,130,145,0.14)',
       crosshair: '#78828f',
       crosshairLabel: '#f8f3e9',
-      volBull: 'rgba(38,166,154,0.30)',
-      volBear: 'rgba(239,83,80,0.30)',
       emaFast: '#c9a227',
       emaSlow: '#7d5fd6',
-      candleUp: '#26a69a',
-      candleDown: '#ef5350',
     },
   },
 };
@@ -69,3 +61,21 @@ export const ZONES = [
 ];
 
 export const zoneByNumber = (n) => ZONES.find(z => z.zone === Number(n)) ?? null;
+
+// Zone badge tint used wherever a zone is shown as a pill (chart badge, pair rows,
+// the Bot Status "CDC Zone" tile) — design handoff: bg = zone@18%, fg = zone@82% + #151a20.
+export function zoneBadgeStyle(n) {
+  const zone = zoneByNumber(n);
+  if (!zone) return undefined;
+  return {
+    background: `color-mix(in srgb, ${zone.color} 18%, transparent)`,
+    color:      `color-mix(in srgb, ${zone.color} 82%, #151a20)`,
+  };
+}
+
+// Foreground-only variant, for places that tint text but not a background
+// (Bot Status "CDC Zone" tile value).
+export const zoneTextColor = (n) => {
+  const zone = zoneByNumber(n);
+  return zone ? `color-mix(in srgb, ${zone.color} 82%, #151a20)` : undefined;
+};
