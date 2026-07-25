@@ -38,7 +38,7 @@ export default function TradeHistory({ trades = [] }) {
   const pageTrades = tableTrades.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
 
   return (
-    <div className="bg-surface border border-border rounded-2xl px-[18px] py-[16px] mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
+    <div className="bg-surface border border-border rounded-2xl px-[18px] py-[16px] shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <div className="flex items-center justify-between mb-[14px]">
         <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0">
           Trade History <span className="text-[14px] font-medium text-secondary">({trades.length})</span>

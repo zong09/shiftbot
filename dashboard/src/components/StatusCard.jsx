@@ -4,10 +4,11 @@ import { zoneTextColor } from '../theme.js';
 
 export const SIGNAL_CLASS = { BUY: 'text-bull', SELL: 'text-bear', HOLD: 'text-secondary' };
 
+// Design handoff: borderless pill, background tinted to 16% of the state color.
 const STATUS_CFG = {
-  on:    { className: 'bg-bull/10 text-bull border-bull/30',  label: 'Running' },
-  pause: { className: 'bg-warn/10 text-warn border-warn/30',  label: 'Paused'  },
-  off:   { className: 'bg-bear/10 text-bear border-bear/30',  label: 'Stopped' },
+  on:    { className: 'bg-bull/[0.16] text-bull',  label: 'Running' },
+  pause: { className: 'bg-warn/[0.16] text-warn',  label: 'Paused'  },
+  off:   { className: 'bg-bear/[0.16] text-bear',  label: 'Stopped' },
 };
 
 // Design handoff: Pause hovers only its border to accent; Stop is a permanently tinted
@@ -61,7 +62,7 @@ export function Tile({ label, children, sub, variant = 'kpi' }) {
 export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolChange, onStatusChange }) {
   if (!status) {
     return (
-      <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] text-secondary text-sm">
+      <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 min-w-0 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] text-secondary text-sm">
         กำลังโหลด...
       </div>
     );
@@ -81,12 +82,12 @@ export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolC
   };
 
   return (
-    <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
-      <div className="flex items-center justify-between flex-wrap gap-2.5 mb-4">
+    <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 min-w-0 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
+      <div className="flex items-center justify-between flex-wrap gap-2.5 mb-3.5">
         <div className="flex items-center gap-2.5">
           <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0">Bot Status</h2>
           {cfg ? (
-            <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold border rounded-[20px] px-2.5 py-1 ${cfg.className}`}>
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold rounded-[20px] px-2.5 py-1 ${cfg.className}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-current animate-sbpulse" />{cfg.label}
             </span>
           ) : (

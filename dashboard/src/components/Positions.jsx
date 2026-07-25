@@ -27,7 +27,7 @@ export default function Positions({ positions = [], pairs = [], onClose }) {
   };
 
   return (
-    <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
+    <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0 mb-3">
         Open Positions <span className="text-[14px] font-medium text-secondary">({positions.length})</span>
       </h2>

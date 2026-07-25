@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTheme } from '../ThemeContext.jsx';
-import { zoneByNumber, zoneBadgeStyle } from '../theme.js';
+import { zoneByNumber, zoneBadgeStyle, mixHex, DEFAULT_ACCENT } from '../theme.js';
 import {
   CHART_H, PAD, GRID_LINES, TIME_STRIDE_DIV, TICK_LEN, AXIS_LABEL_DY,
   PRICE_LABEL_DX, PRICE_LABEL_DY, DOMAIN_PAD_PCT, BAND_OPACITY, AREA_OPACITY,
@@ -20,16 +20,9 @@ const TF_MS = {
 // Legend swatch — the 6-stop condensed zone ramp from the design handoff
 const ZONE_RAMP = 'linear-gradient(90deg,#3f9e6b,#84b98c,#c9c48a,#dcbf82,#cf8570,#c1614e)';
 
-// Axis, crosshair and tag colors are hardcoded rgba in the design rather than themed —
-// they read the same against both surfaces, so they stay literals here too.
-const AXIS_LINE  = 'rgba(120,130,145,.09)';
-const AXIS_TICK  = 'rgba(120,130,145,.4)';
-const AXIS_TEXT  = 'rgba(120,130,145,.85)';
-const CROSS_LINE = 'rgba(120,130,145,.55)';
-const TAG_BG     = '#4a5563';
-const LAST_UP    = '#26a69a';
-const LAST_DOWN  = '#ef5350';
-const MONO       = 'IBM Plex Mono,monospace';
+// Axis, crosshair, tag and up/down colors are all theme-derived in the design (tints of
+// --text-dim, --text on --surface, --pos/--neg) — they live in theme.js as colors.chart.*.
+const MONO = 'IBM Plex Mono,monospace';
 
 // Axis labels are formatted in Asia/Bangkok so the chart agrees with the trade and
 // position tables. hourCycle 'h23' is required: hour12:false alone yields "24:00" for
@@ -113,10 +106,20 @@ export default function PriceChart({
   indicators = [],
   trades = [],
   symbol,
+  accent = DEFAULT_ACCENT.live,
   chartTimeframe = '1h',
   onTimeframeChange,
 }) {
   const { colors } = useTheme();
+
+  // The design paints EMA 12 with --accent and derives EMA 26 and the trade-close markers from
+  // it. --accent is per-mode and user-overridable, so these can't be static tokens.
+  const series = useMemo(() => ({
+    emaFast:    accent,
+    emaSlow:    mixHex(colors.textPrimary, accent, 55),
+    closeLong:  accent,
+    closeShort: mixHex(colors.bear, accent, 65),
+  }), [accent, colors]);
   const wrapRef = useRef(null);
   const [width, setWidth] = useState(0);
   // Crosshair position: bar index plus the raw mouse y, both in SVG pixels.
@@ -225,7 +228,7 @@ export default function PriceChart({
       );
       lbl.push(
         <text key={`pl${g}`} x={width - PAD.R + PRICE_LABEL_DX} y={gy + PRICE_LABEL_DY}
-              fill={AXIS_TEXT} fontSize={FONT.axis} fontFamily={MONO}>
+              fill={colors.chart.axisText} fontSize={FONT.axis} fontFamily={MONO}>
           {fmtAxis(pv)}
         </text>,
       );
@@ -241,12 +244,12 @@ export default function PriceChart({
       const atBoundary = intraday ? (p.hour === '00' && p.minute === '00') : true;
       const label = intraday ? (atBoundary ? dd : `${p.hour}:${p.minute}`) : dd;
       grid.push(
-        <line key={`vg${i}`} x1={x(i)} x2={x(i)} y1={PAD.T} y2={axisY} stroke={AXIS_LINE} strokeWidth="1" />,
-        <line key={`tk${i}`} x1={x(i)} x2={x(i)} y1={axisY} y2={axisY + TICK_LEN} stroke={AXIS_TICK} strokeWidth="1" />,
+        <line key={`vg${i}`} x1={x(i)} x2={x(i)} y1={PAD.T} y2={axisY} stroke={colors.chart.gridV} strokeWidth="1" />,
+        <line key={`tk${i}`} x1={x(i)} x2={x(i)} y1={axisY} y2={axisY + TICK_LEN} stroke={colors.chart.tick} strokeWidth="1" />,
       );
       lbl.push(
         <text key={`tl${i}`} x={x(i)} y={axisY + AXIS_LABEL_DY} textAnchor="middle"
-              fill={AXIS_TEXT} fontSize={FONT.axis} fontFamily={MONO}
+              fill={colors.chart.axisText} fontSize={FONT.axis} fontFamily={MONO}
               fontWeight={atBoundary ? FONT.boundaryWeight : FONT.normalWeight}>
           {label}
         </text>,
@@ -292,14 +295,14 @@ export default function PriceChart({
     };
     const emaEls = [
       <path key="emaFast" d={emaPath('emaFast')} fill="none"
-            stroke={colors.chart.emaFast} strokeWidth={EMA.width} opacity={EMA.opacity} />,
+            stroke={series.emaFast} strokeWidth={EMA.width} opacity={EMA.opacity} />,
       <path key="emaSlow" d={emaPath('emaSlow')} fill="none"
-            stroke={colors.chart.emaSlow} strokeWidth={EMA.width} opacity={EMA.opacity} />,
+            stroke={series.emaSlow} strokeWidth={EMA.width} opacity={EMA.opacity} />,
     ];
 
     const lastCandle = candles[n - 1];
     const lastY = y(lastCandle.close);
-    const lastCol = lastCandle.close >= lastCandle.open ? LAST_UP : LAST_DOWN;
+    const lastCol = lastCandle.close >= lastCandle.open ? colors.chart.up : colors.chart.dn;
     const lastLine = (
       <line key="lastLine" x1={PAD.L} x2={PAD.L + iw} y1={lastY} y2={lastY} stroke={lastCol}
             strokeWidth={LAST_LINE.width} strokeDasharray={LAST_LINE.dash} opacity={LAST_LINE.opacity} />
@@ -319,7 +322,7 @@ export default function PriceChart({
       geom: { n, iw, ph, axisY, mn, mx, x, y, fmtAxis },
       defs, zoneBand, grid, priceEls, emaEls, lastLine, lastTag, lbl,
     };
-  }, [candles, indicators, width, colors, chartTimeframe, gid]);
+  }, [candles, indicators, width, colors, series, chartTimeframe, gid]);
 
   const geom = chart?.geom ?? null;
 
@@ -343,7 +346,7 @@ export default function PriceChart({
       if (!e) return;
       const { long } = leg;
       const col = long ? colors.bull : colors.bear;
-      const closeCol = long ? colors.chart.closeLong : colors.chart.closeShort;
+      const closeCol = long ? series.closeLong : series.closeShort;
       const r = MARKER.r;
       const ty = e.y + (long ? MARKER.offset : -MARKER.offset);
       const tri = long
@@ -378,7 +381,7 @@ export default function PriceChart({
       );
     });
     return els;
-  }, [trades, candles, colors, geom, chartTimeframe]);
+  }, [trades, candles, colors, series, geom, chartTimeframe]);
 
   const onMove = e => {
     if (!geom) return;
@@ -405,13 +408,13 @@ export default function PriceChart({
     const p = bkkParts(candles[cross.i].timestamp);
     const pv = geom.mx - (Math.min(cy - PAD.T, geom.ph) / geom.ph) * (geom.mx - geom.mn);
     crossEls = [
-      <line key="cxv" x1={cxx} x2={cxx} y1={PAD.T} y2={geom.axisY} stroke={CROSS_LINE}
+      <line key="cxv" x1={cxx} x2={cxx} y1={PAD.T} y2={geom.axisY} stroke={colors.chart.crosshair}
             strokeWidth={CROSS.width} strokeDasharray={CROSS.dash} />,
-      <line key="cxh" x1={PAD.L} x2={PAD.L + geom.iw} y1={cy} y2={cy} stroke={CROSS_LINE}
+      <line key="cxh" x1={PAD.L} x2={PAD.L + geom.iw} y1={cy} y2={cy} stroke={colors.chart.crosshair}
             strokeWidth={CROSS.width} strokeDasharray={CROSS.dash} />,
       <rect key="cbr" x={cxx - TIME_TAG.dx} y={geom.axisY + TIME_TAG.top} width={TIME_TAG.w}
-            height={TIME_TAG.h} rx={TIME_TAG.rx} fill={TAG_BG} />,
-      <text key="cbt" x={cxx} y={geom.axisY + TIME_TAG.dy} textAnchor="middle" fill="#fff"
+            height={TIME_TAG.h} rx={TIME_TAG.rx} fill={colors.chart.tagBg} />,
+      <text key="cbt" x={cxx} y={geom.axisY + TIME_TAG.dy} textAnchor="middle" fill={colors.chart.tagText}
             fontSize={TIME_TAG.fontSize} fontWeight="600" fontFamily={MONO}>
         {`${p.day}/${p.month} ${p.hour}:${p.minute}`}
       </text>,
@@ -419,9 +422,9 @@ export default function PriceChart({
     if (cy <= PAD.T + geom.ph + 4) {
       crossEls.push(
         <rect key="cxr" x={width - PAD.R} y={cy - PRICE_TAG.h / 2} width={PAD.R}
-              height={PRICE_TAG.h} rx={PRICE_TAG.rx} fill={TAG_BG} />,
+              height={PRICE_TAG.h} rx={PRICE_TAG.rx} fill={colors.chart.tagBg} />,
         <text key="cxt" x={width - PAD.R + PAD.R / 2} y={cy + PRICE_TAG.dy} textAnchor="middle"
-              fill="#fff" fontSize={PRICE_TAG.fontSize} fontWeight="600" fontFamily={MONO}>
+              fill={colors.chart.tagText} fontSize={PRICE_TAG.fontSize} fontWeight="600" fontFamily={MONO}>
           {geom.fmtAxis(pv)}
         </text>,
       );
@@ -434,7 +437,7 @@ export default function PriceChart({
   const badgeStyle  = zoneBadgeStyle(lastInd?.zone);
 
   return (
-    <div className="bg-surface border border-border rounded-2xl shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] mb-4 px-[18px] py-4 min-w-0">
+    <div className="bg-surface border border-border rounded-[14px] px-[18px] py-4 min-w-0">
       {/* Header: symbol + timeframe chips, zone badge pushed right */}
       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
         <div className="flex items-center gap-2.5">
@@ -473,7 +476,7 @@ export default function PriceChart({
             <span>O&nbsp;<b className="text-primary">{formatPrice(displayData.open)}</b></span>
             <span>H&nbsp;<b className="text-bull">{formatPrice(displayData.high)}</b></span>
             <span>L&nbsp;<b className="text-bear">{formatPrice(displayData.low)}</b></span>
-            <span>C&nbsp;<b style={{ color: displayData.close >= displayData.open ? LAST_UP : LAST_DOWN }}>
+            <span>C&nbsp;<b style={{ color: displayData.close >= displayData.open ? colors.chart.up : colors.chart.dn }}>
               {formatPrice(displayData.close)}
             </b></span>
             <span className="ml-auto inline-flex items-center gap-3">
@@ -483,8 +486,8 @@ export default function PriceChart({
               </span>
               {lastInd && (
                 <>
-                  <span style={{ color: colors.chart.emaFast }}>— EMA 12&nbsp;{formatPrice(lastInd.emaFast)}</span>
-                  <span style={{ color: colors.chart.emaSlow }}>— EMA 26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
+                  <span style={{ color: series.emaFast }}>— EMA 12&nbsp;{formatPrice(lastInd.emaFast)}</span>
+                  <span style={{ color: series.emaSlow }}>— EMA 26&nbsp;{formatPrice(lastInd.emaSlow)}</span>
                 </>
               )}
             </span>

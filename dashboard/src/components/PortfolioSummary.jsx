@@ -30,7 +30,7 @@ export default function PortfolioSummary({ pairs = [], trades = [], balance, act
   if (unrealized != null) unrealizedClass = unrealized >= 0 ? 'text-bull' : 'text-bear';
 
   return (
-    <div className="bg-surface border border-border rounded-2xl px-5 py-[18px] mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
+    <div className="bg-surface border border-border rounded-2xl px-5 py-[18px] shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0">Portfolio Summary</h2>
         <span className="text-xs text-secondary tabular-nums">{pairs.length} pairs</span>

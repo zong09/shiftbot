@@ -18,7 +18,7 @@ export default function ZoneBar({ currentZone }) {
             }}
           >
             <div className="font-mono text-[15px] font-bold leading-none">{z.zone}</div>
-            <div className="text-[8px] font-semibold leading-[1.15] mt-0.5 opacity-90 overflow-hidden">{z.name}</div>
+            <div className="text-[8px] font-semibold leading-[1.15] mt-0.5 opacity-90 break-words hyphens-auto">{z.name}</div>
           </div>
         );
       })}

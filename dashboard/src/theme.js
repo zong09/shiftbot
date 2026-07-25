@@ -1,5 +1,22 @@
 // Design tokens — keep hex values in sync with the CSS variables in src/index.css.
 // The canvas chart (PriceChart) can't read CSS vars, so it consumes this JS copy.
+
+// The design writes the chart's axis/crosshair colors as color-mix() against --text-dim.
+// SVG presentation attributes don't reliably parse color-mix()/var(), so the same values are
+// resolved here in JS instead.
+export function withAlpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+// color-mix(in srgb, a pct%, b) — per-channel lerp.
+export function mixHex(a, b, pct) {
+  const [x, y] = [a, b].map(h => parseInt(h.slice(1), 16));
+  const w = pct / 100;
+  const ch = s => Math.round((((x >> s) & 255) * w) + (((y >> s) & 255) * (1 - w)));
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
 export const TOKENS = {
   dark: {
     bg: '#1b2026',
@@ -12,15 +29,18 @@ export const TOKENS = {
     bull: '#5cc48a',
     bear: '#e6806a',
     warn: '#b5883f',
+    // Axis, grid and crosshair are tints of textSecondary; the tags invert text on surface.
+    // EMA and trade-close colors are accent-derived, so PriceChart computes them per mode.
     chart: {
-      grid: 'rgba(120,130,145,0.14)',
-      crosshair: '#98a2ae',
-      crosshairLabel: '#2c343d',
-      emaFast: '#c9a227',
-      emaSlow: '#7d5fd6',
-      // Trade close markers, keyed by the side that was closed (design handoff)
-      closeLong:  '#5c9fd6',
-      closeShort: '#d6a44a',
+      grid:      withAlpha('#98a2ae', 0.24),
+      gridV:     withAlpha('#98a2ae', 0.14),
+      tick:      withAlpha('#98a2ae', 0.55),
+      axisText:  '#98a2ae',
+      crosshair: withAlpha('#98a2ae', 0.70),
+      tagBg:     '#e9ecef',
+      tagText:   '#242b33',
+      up: '#5cc48a',
+      dn: '#e6806a',
     },
   },
   light: {
@@ -35,13 +55,15 @@ export const TOKENS = {
     bear: '#c65f49',
     warn: '#b5883f',
     chart: {
-      grid: 'rgba(120,130,145,0.14)',
-      crosshair: '#78828f',
-      crosshairLabel: '#f8f3e9',
-      emaFast: '#c9a227',
-      emaSlow: '#7d5fd6',
-      closeLong:  '#2f7dc1',
-      closeShort: '#c98a2a',
+      grid:      withAlpha('#78828f', 0.24),
+      gridV:     withAlpha('#78828f', 0.14),
+      tick:      withAlpha('#78828f', 0.55),
+      axisText:  '#78828f',
+      crosshair: withAlpha('#78828f', 0.70),
+      tagBg:     '#28303a',
+      tagText:   '#fffdf8',
+      up: '#2f8f5f',
+      dn: '#c65f49',
     },
   },
 };
