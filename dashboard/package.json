@@ -13,7 +13,6 @@
     "@fontsource/ibm-plex-sans-thai": "^5.3.0",
     "@fontsource/space-grotesk": "^5.3.0",
     "axios": "^1.6.5",
-    "lightweight-charts": "^4.2.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "recharts": "^2.10.3"
