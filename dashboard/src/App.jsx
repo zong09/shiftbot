@@ -23,13 +23,13 @@ const BANNER = {
 };
 
 const segClass = (active) =>
-  `inline-flex items-center gap-2 px-4 py-1.5 rounded-lg text-[13px] font-semibold cursor-pointer transition-all duration-150 ${
+  `inline-flex items-center gap-[7px] px-[15px] py-[7px] rounded-[9px] text-[13px] font-semibold leading-none cursor-pointer transition-all duration-150 ${
     active ? 'bg-accent text-white shadow-[0_2px_8px_-2px_color-mix(in_srgb,var(--accent)_60%,transparent)]' : 'text-secondary hover:text-primary'
   }`;
 
 const chipClass = (active) =>
-  `px-4 py-1.5 rounded-lg text-[12.5px] font-semibold cursor-pointer transition-all duration-150 ${
-    active ? 'bg-surface text-primary shadow-sm' : 'text-secondary hover:text-primary'
+  `px-4 py-[7px] rounded-lg text-[12.5px] font-semibold leading-none cursor-pointer transition-all duration-150 ${
+    active ? 'bg-surface text-primary shadow-[0_1px_3px_rgba(0,0,0,0.08)]' : 'text-secondary hover:text-primary'
   }`;
 
 export default function App() {
@@ -143,20 +143,20 @@ export default function App() {
 
   return (
     <div style={rootStyle} className="min-h-dvh bg-bg text-primary">
-      <div className="max-w-[1360px] mx-auto px-5 pt-4 pb-16">
+      <div className="max-w-[1360px] mx-auto px-5 pt-4 pb-[60px]">
 
         {/* Top bar */}
-        <header className="flex items-center gap-4 flex-wrap pb-4 mb-4 border-b border-border">
-          <div className="flex items-center gap-2.5 mr-1">
+        <header className="flex items-center gap-[18px] flex-wrap pb-4 mb-4 border-b border-border">
+          <div className="flex items-center gap-[11px] mr-1">
             <LogoTile size={38} radius={11} iconSize={23} />
             <div>
-              <div className="font-display font-bold text-[18px] leading-none tracking-tight">ShiftBot</div>
-              <div className="text-[11px] text-secondary mt-0.5">Binance Futures · {chartSymbol.replace(':USDT', '')}</div>
+              <div className="font-display font-bold text-[18px] leading-none tracking-[-0.02em]">ShiftBot</div>
+              <div className="text-[11px] text-secondary mt-[3px]">Binance Futures · {chartSymbol.replace(':USDT', '')}</div>
             </div>
           </div>
 
           {/* Mode segmented control */}
-          <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-xl">
+          <div className="flex gap-[5px] p-1 bg-surface-alt border border-border rounded-xl">
             {MODES.map(m => (
               <button key={m.key} className={segClass(mode === m.key)} onClick={() => setMode(m.key)}>
                 <span className="w-[7px] h-[7px] rounded-full" style={{ background: m.dot }} />
@@ -167,7 +167,7 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-2.5 flex-wrap">
             {lastFetch && (
-              <div className="text-right leading-snug mr-1">
+              <div className="text-right leading-[1.4] mr-1">
                 <div className="text-[11px] text-secondary">อัพเดทล่าสุด <span className="tabular-nums">{lastFetch.toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })}</span></div>
                 <div className="text-[11px] text-secondary">refresh ใน <span className="tabular-nums">{countdown}s</span></div>
               </div>
@@ -175,20 +175,20 @@ export default function App() {
             <button
               onClick={() => loadData(mode, chartTimeframe, chartSymbol)}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-border rounded-lg bg-surface text-[13px] font-medium hover:border-accent transition-colors duration-150 cursor-pointer disabled:opacity-50"
+              className="inline-flex items-center gap-[7px] px-[13px] py-[9px] border border-border rounded-[10px] bg-surface text-[13px] font-medium hover:border-accent transition-colors duration-150 cursor-pointer disabled:opacity-50"
             >
               <Refresh /> {loading ? '...' : 'Refresh'}
             </button>
             <button
               onClick={toggle}
               title="Theme"
-              className="w-9 h-9 flex items-center justify-center border border-border rounded-lg bg-surface hover:border-accent transition-colors duration-150 cursor-pointer"
+              className="w-[38px] h-[38px] flex items-center justify-center border border-border rounded-[10px] bg-surface hover:border-accent transition-colors duration-150 cursor-pointer"
             >
               {theme === 'dark' ? <Sun /> : <Moon />}
             </button>
             <button
               onClick={() => { localStorage.removeItem('token'); setToken(null); }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-border rounded-lg bg-surface text-[13px] font-medium hover:text-bear hover:border-bear transition-colors duration-150 cursor-pointer"
+              className="inline-flex items-center gap-[7px] px-[13px] py-[9px] border border-border rounded-[10px] bg-surface text-[13px] font-medium hover:text-bear hover:border-bear transition-colors duration-150 cursor-pointer"
             >
               <Logout /> Logout
             </button>
@@ -196,14 +196,14 @@ export default function App() {
         </header>
 
         {/* Nav */}
-        <nav className="flex gap-1.5 p-1.5 bg-surface border border-border rounded-xl mb-3.5">
+        <nav className="flex gap-1.5 p-[5px] bg-surface border border-border rounded-[13px] mb-3.5">
           {[['dashboard', 'Dashboard'], ['settings', 'Settings']].map(([key, label]) => {
             const active = page === key;
             return (
               <button
                 key={key}
                 onClick={() => setPage(key)}
-                className={`px-4.5 py-2 rounded-lg text-[13.5px] font-semibold cursor-pointer transition-all duration-150 ${active ? 'text-accent' : 'text-secondary hover:text-primary'}`}
+                className={`px-[18px] py-[9px] rounded-[10px] text-[13.5px] font-semibold leading-none cursor-pointer transition-all duration-150 ${active ? 'text-accent' : 'text-secondary hover:text-primary'}`}
                 style={active
                   ? { background: 'color-mix(in srgb, var(--accent) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 32%, transparent)' }
                   : { border: '1px solid transparent' }}
@@ -216,7 +216,7 @@ export default function App() {
 
         {/* Mode banner */}
         <div
-          className="flex items-center gap-2.5 px-4 py-2.5 mb-4 rounded-xl text-[13px] font-medium"
+          className="flex items-center gap-2.5 px-[15px] py-[11px] mb-4 rounded-xl text-[13px] font-medium"
           style={{
             border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)',
             background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
@@ -268,8 +268,8 @@ export default function App() {
           <div className="flex flex-col gap-4 animate-sbfade">
             {/* Layout toggle */}
             <div className="flex items-center gap-2.5">
-              <span className="text-[11px] font-semibold tracking-wide text-secondary uppercase">Layout</span>
-              <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-lg">
+              <span className="text-[11px] font-semibold tracking-[0.08em] text-secondary uppercase">Layout</span>
+              <div className="flex gap-1 p-1 bg-surface-alt border border-border rounded-[10px]">
                 {[['split', 'Split'], ['stack', 'Stack']].map(([key, label]) => (
                   <button key={key} className={chipClass(layout === key)} onClick={() => setLayout(key)}>{label}</button>
                 ))}
@@ -313,6 +313,7 @@ export default function App() {
                 />
                 <Positions
                   positions={status?.openPositions ?? []}
+                  pairs={status?.pairs ?? []}
                   onClose={async (id) => {
                     try {
                       await closePosition(id);
@@ -329,7 +330,7 @@ export default function App() {
           </div>
         )}
 
-        <div className="text-center text-secondary/60 text-[11px] pt-3">
+        <div className="text-center text-secondary/60 text-[11px] pt-5">
           ระบบเชื่อมต่อ Testnet · กรุณาใช้ด้วยความระมัดระวัง
         </div>
       </div>

@@ -2,8 +2,10 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useTheme } from '../ThemeContext.jsx';
 
-const TH_CLASS = 'px-3 py-2 text-left text-[11px] uppercase tracking-wide font-medium text-secondary border-b border-border';
-const TD_CLASS = 'px-3 py-2.5 border-b border-border/60 tabular-nums';
+const TH_CLASS = 'px-[10px] py-[8px] text-left text-[10px] font-semibold tracking-[0.06em] text-secondary';
+const TD_CLASS = 'px-[10px] py-[10px] tabular-nums';
+// The Zone cell is the one body cell the design leaves in the body font, not mono.
+const TD_PLAIN = 'px-[10px] py-[10px]';
 
 const ACTION_LABEL = {
   OPEN_LONG:   { label: 'Open Long',   className: 'text-bull' },
@@ -12,6 +14,7 @@ const ACTION_LABEL = {
   TP_HIT:      { label: 'Take Profit', className: 'text-bull' },
   OPEN_SHORT:  { label: 'Open Short',  className: 'text-warn' },
   CLOSE_SHORT: { label: 'Close Short', className: 'text-accent' },
+  SYNC_CLOSE:  { label: 'Sync Close',  className: 'text-secondary' },
 };
 
 export default function TradeHistory({ trades = [] }) {
@@ -28,13 +31,15 @@ export default function TradeHistory({ trades = [] }) {
     .map((t, i) => ({ name: `#${i + 1}`, pnl: parseFloat(t.pnl.toFixed(2)) }));
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
-      <h3 className="text-sm font-semibold mb-4">
-        Trade History <span className="text-secondary font-normal">({trades.length})</span>
-      </h3>
+    <div className="bg-surface border border-border rounded-2xl px-[18px] py-[16px] mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
+      <div className="flex items-center justify-between mb-[14px]">
+        <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0">
+          Trade History <span className="text-[14px] font-medium text-secondary">({trades.length})</span>
+        </h2>
+      </div>
 
       {pnlData.length > 0 && (
-        <div className="h-[120px] mb-5">
+        <div className="h-[120px] mb-[14px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={pnlData} barSize={14}>
               <XAxis dataKey="name" tick={{ fill: colors.textSecondary, fontSize: 10 }} />
@@ -58,7 +63,8 @@ export default function TradeHistory({ trades = [] }) {
         </div>
       )}
 
-      <table className="w-full border-collapse text-[13px]">
+      <div className="overflow-x-auto">
+      <table className="w-full border-collapse text-[12.5px] min-w-[640px]">
         <thead>
           <tr>
             {['Symbol', 'Action', 'Price', 'Qty', 'Zone', 'PnL', 'Time'].map(h => (
@@ -73,12 +79,12 @@ export default function TradeHistory({ trades = [] }) {
             const meta = ACTION_LABEL[t.action] ?? { label: t.action, className: 'text-primary' };
             const hasPnl = t.pnl != null;
             return (
-              <tr key={i} className="hover:bg-surface-alt/60 transition-colors duration-150">
+              <tr key={i} className="border-t border-border hover:bg-surface-alt/60 transition-colors duration-[120ms]">
                 <td className={`${TD_CLASS} font-semibold text-primary`}>{t.symbol?.replace(':USDT', '')}</td>
                 <td className={`${TD_CLASS} font-semibold ${meta.className}`}>{meta.label}</td>
                 <td className={TD_CLASS}>{t.price?.toLocaleString()}</td>
                 <td className={TD_CLASS}>{t.quantity}</td>
-                <td className={`${TD_CLASS} text-secondary`}>Zone {t.zone}</td>
+                <td className={`${TD_PLAIN} text-[11px] text-secondary`}>Zone {t.zone}</td>
                 <td className={`${TD_CLASS} ${hasPnl ? (t.pnl >= 0 ? 'text-bull font-semibold' : 'text-bear font-semibold') : 'text-secondary/70'}`}>
                   {hasPnl ? `${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} USDT` : '—'}
                 </td>
@@ -90,6 +96,7 @@ export default function TradeHistory({ trades = [] }) {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

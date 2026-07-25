@@ -19,8 +19,18 @@ export function SignalWave({ size = 23, stroke = '#fff', strokeWidth = 2.4 }) {
   );
 }
 
-// Accent-gradient rounded tile wrapping the Signal-Wave mark (login + header logo).
-export function LogoTile({ size = 38, radius = 11, iconSize = 23 }) {
+// Accent-gradient rounded tile wrapping the Signal-Wave mark.
+// The design uses two variants that differ in more than size: the header tile mixes the
+// gradient's dark stop at 74% with a tight shadow and a 2.4-weight mark, the login tile
+// mixes at 72% with a much softer shadow and a 2.2-weight mark. Defaults are the header's.
+export function LogoTile({
+  size = 38,
+  radius = 11,
+  iconSize = 23,
+  mixStop = 74,
+  strokeWidth = 2.4,
+  shadow = '0 4px 12px -4px color-mix(in srgb,var(--accent) 55%,transparent)',
+}) {
   return (
     <div
       style={{
@@ -28,15 +38,15 @@ export function LogoTile({ size = 38, radius = 11, iconSize = 23 }) {
         height: size,
         borderRadius: radius,
         background:
-          'linear-gradient(135deg,color-mix(in srgb,var(--accent) 82%,#fff),var(--accent) 55%,color-mix(in srgb,var(--accent) 74%,#1c2430))',
-        boxShadow: '0 4px 12px -4px color-mix(in srgb,var(--accent) 55%,transparent)',
+          `linear-gradient(135deg,color-mix(in srgb,var(--accent) 82%,#fff),var(--accent) 55%,color-mix(in srgb,var(--accent) ${mixStop}%,#1c2430))`,
+        boxShadow: shadow,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
       }}
     >
-      <SignalWave size={iconSize} />
+      <SignalWave size={iconSize} strokeWidth={strokeWidth} />
     </div>
   );
 }
