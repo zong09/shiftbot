@@ -17,7 +17,7 @@ export default function Positions({ positions = [], onClose }) {
   };
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-5 mb-4">
+    <div className="bg-surface border border-border rounded-2xl p-5 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <h3 className="text-sm font-semibold mb-4">
         Open Positions <span className="text-secondary font-normal">({positions.length})</span>
       </h3>

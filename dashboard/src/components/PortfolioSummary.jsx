@@ -30,28 +30,28 @@ export default function PortfolioSummary({ pairs = [], trades = [], balance, act
   if (unrealized != null) unrealizedClass = unrealized >= 0 ? 'text-bull' : 'text-bear';
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-5 mb-4">
+    <div className="bg-surface border border-border rounded-2xl p-5 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <h2 className="text-base font-semibold m-0 mb-4">Portfolio Summary</h2>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <Tile label="Net PnL">
-          <div className={`text-lg font-semibold tabular-nums ${net >= 0 ? 'text-bull' : 'text-bear'}`}>
+          <div className={`text-2xl font-semibold tabular-nums ${net >= 0 ? 'text-bull' : 'text-bear'}`}>
             {signed(net)} <span className="text-[11px] text-secondary font-normal">USDT</span>
           </div>
         </Tile>
         <Tile label="Profit" sub={`${wins.length} ไม้กำไร`}>
-          <div className="text-lg font-semibold tabular-nums text-bull">{signed(profit)}</div>
+          <div className="text-2xl font-semibold tabular-nums text-bull">{signed(profit)}</div>
         </Tile>
         <Tile label="Loss" sub={`${losses.length} ไม้ขาดทุน`}>
-          <div className="text-lg font-semibold tabular-nums text-bear">{loss.toFixed(2)}</div>
+          <div className="text-2xl font-semibold tabular-nums text-bear">{loss.toFixed(2)}</div>
         </Tile>
         <Tile label="Win Rate" sub={closed.length ? `W ${wins.length} · L ${losses.length}` : undefined}>
-          <div className="text-lg font-semibold tabular-nums">
+          <div className="text-2xl font-semibold tabular-nums">
             {winRate != null ? `${winRate.toFixed(0)}%` : '—'}
           </div>
         </Tile>
         <Tile label="Unrealized PnL" sub={openPositions.length ? `${openPositions.length} position เปิด` : undefined}>
-          <div className={`text-lg font-semibold tabular-nums ${unrealizedClass}`}>
+          <div className={`text-2xl font-semibold tabular-nums ${unrealizedClass}`}>
             {unrealized != null ? signed(unrealized) : '—'}
           </div>
         </Tile>

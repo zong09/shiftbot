@@ -47,7 +47,7 @@ export default function Login({ onLoginSuccess }) {
       }}
     >
       <div
-        className="w-full max-w-[420px] bg-surface border border-border rounded-[20px] px-[34px] py-[38px] animate-sbfade"
+        className="w-full max-w-[420px] bg-surface border border-border rounded-[20px] shadow-[0_24px_60px_-30px_rgba(40,48,58,0.4)] px-[34px] py-[38px] animate-sbfade"
         style={{ boxShadow: '0 24px 60px -30px rgba(40,48,58,.4)' }}
       >
         <div className="flex justify-center mb-4.5">
