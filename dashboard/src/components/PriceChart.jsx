@@ -353,8 +353,9 @@ export default function PriceChart({
     if (!chart || !cSer || !series.length) return [];
 
     const ts = chart.timeScale();
-    // null when the fill is off the loaded range or scrolled out of view — never clamped,
-    // so a marker is either on its own candle or absent
+    // null when the fill falls outside the loaded candles — never clamped, so a marker is
+    // either on its own candle or absent. A fill that is loaded but panned off-screen
+    // returns an out-of-bounds coordinate instead, which the SVG's own clip hides.
     const at = t => {
       const nearest = snapToNearestCandle(t.timestamp, series);
       if (!nearest) return null;
