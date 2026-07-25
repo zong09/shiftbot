@@ -301,7 +301,7 @@ export default function PriceChart({
 
   return (
     <div
-      className="bg-surface border border-border rounded-2xl mb-4 overflow-hidden"
+      className="bg-surface border border-border rounded-2xl shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] mb-4 overflow-hidden"
       style={{ boxShadow: '0 1px 2px rgba(40,48,58,.05), 0 14px 36px -28px rgba(40,48,58,.3)' }}
     >
       {/* Toolbar */}

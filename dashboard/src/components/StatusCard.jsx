@@ -40,7 +40,7 @@ export function Tile({ label, children, sub }) {
 export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolChange, onStatusChange }) {
   if (!status) {
     return (
-      <div className="bg-surface border border-border rounded-lg p-5 mb-4 text-secondary text-sm">
+      <div className="bg-surface border border-border rounded-2xl p-5 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)] text-secondary text-sm">
         กำลังโหลด...
       </div>
     );
@@ -60,7 +60,7 @@ export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolC
   };
 
   return (
-    <div className="bg-surface border border-border rounded-lg p-5 mb-4">
+    <div className="bg-surface border border-border rounded-2xl p-5 mb-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2.5">
           <h2 className="text-base font-semibold m-0">Bot Status</h2>
@@ -102,27 +102,27 @@ export default function StatusCard({ status, pairs = [], activeSymbol, onSymbolC
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
         <Tile label="Signal">
-          <div className={`text-lg font-semibold ${SIGNAL_CLASS[cdc?.signal] ?? 'text-primary'}`}>
+          <div className={`text-base font-semibold ${SIGNAL_CLASS[cdc?.signal] ?? 'text-primary'}`}>
             {cdc?.signal ?? '—'}
           </div>
         </Tile>
         <Tile label="CDC Zone" sub={cdc?.zoneName}>
-          <div className="text-lg font-semibold" style={zoneColor ? { color: zoneColor } : undefined}>
+          <div className="text-base font-semibold" style={zoneColor ? { color: zoneColor } : undefined}>
             Zone {cdc?.zone ?? '—'}
           </div>
         </Tile>
         <Tile label="EMA 12">
-          <div className="text-lg font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaFast).toFixed(2) : '—'}</div>
+          <div className="text-base font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaFast).toFixed(2) : '—'}</div>
         </Tile>
         <Tile label="EMA 26">
-          <div className="text-lg font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaSlow).toFixed(2) : '—'}</div>
+          <div className="text-base font-semibold tabular-nums">{cdc ? parseFloat(cdc.emaSlow).toFixed(2) : '—'}</div>
         </Tile>
         <Tile label="Close Price">
-          <div className="text-lg font-semibold tabular-nums">{cdc?.close?.toLocaleString() ?? '—'}</div>
+          <div className="text-base font-semibold tabular-nums">{cdc?.close?.toLocaleString() ?? '—'}</div>
         </Tile>
         <Tile label="Total PnL">
-          <div className={`text-lg font-semibold tabular-nums ${pnl >= 0 ? 'text-bull' : 'text-bear'}`}>
-            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} USDT
+          <div className={`text-base font-semibold tabular-nums ${pnl >= 0 ? 'text-bull' : 'text-bear'}`}>
+            {pnl >= 0 ? '+' : ''}{pnl.toFixed(2)} <span className="text-[11px] text-secondary font-normal">USDT</span>
           </div>
         </Tile>
       </div>
