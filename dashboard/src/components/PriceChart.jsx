@@ -73,6 +73,14 @@ function formatPrice(v) {
   return Number(v).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 }
 
+// Marker tooltips print a whole-number price as the design does (62,871, not 62,871.0).
+// The handoff only ever shows BTC, so sub-$1000 pairs keep two decimals to stay readable —
+// rounding DOGE to an integer would print 0.
+function formatMarkerPrice(v) {
+  const n = Number(v);
+  return n.toLocaleString(undefined, { maximumFractionDigits: n >= 1000 ? 0 : 2 });
+}
+
 function formatVolume(v) {
   if (!v && v !== 0) return '—';
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
@@ -210,11 +218,17 @@ export default function PriceChart({
 
     chartRef.current = chart;
 
-    // rAF-coalesced: pan/zoom fires per frame, one re-render per frame is enough
+    // rAF-coalesced: pan/zoom fires per frame, one re-render per frame is enough.
+    // An open marker tooltip is anchored to the coordinates it was opened at, so it has
+    // to close here — the marker underneath it has moved.
     let raf = 0;
     const bumpCoords = () => {
       if (raf) return;
-      raf = requestAnimationFrame(() => { raf = 0; setCoordTick(t => t + 1); });
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        setMarkerHover(null);
+        setCoordTick(t => t + 1);
+      });
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(bumpCoords);
 
@@ -508,7 +522,7 @@ export default function PriceChart({
             circles, so the crosshair keeps feeding the OHLCV readout above. */}
         {markerLayer.length > 0 && (
           <svg
-            className="absolute left-0 top-0 pointer-events-none overflow-hidden"
+            className="absolute left-0 top-0 z-10 pointer-events-none overflow-hidden"
             style={{ right: plotInset.right, height: CHART_HEIGHT - plotInset.bottom }}
           >
             {markerLayer}
@@ -537,7 +551,7 @@ export default function PriceChart({
                 </span>
               </div>
               <div className="font-mono text-[13px] font-semibold text-primary">
-                {symbol?.replace(':USDT', '')} · {formatPrice(trade.price)}
+                {symbol?.replace(':USDT', '')} · {formatMarkerPrice(trade.price)}
               </div>
               {isClose ? (
                 <div className="text-[11px] mt-[3px]">
