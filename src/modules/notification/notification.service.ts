@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { CDCResult, Position } from '../../common/types';
 import { NotificationSettingsEntity } from '../../database/entities/notification-settings.entity';
@@ -27,6 +27,17 @@ const EVENT_COLUMN: Record<NotificationChannel, Record<NotifyEvent, keyof Notifi
     error: 'telegramNotifyError',
   },
 };
+
+/**
+ * Axios puts the provider's own explanation in `response.data` and leaves `message` as a bare
+ * "Request failed with status code 401" — which credential is wrong never reaches the log.
+ * LINE and Telegram both answer with a short JSON reason; append it whenever there is one.
+ */
+function providerDetail(err: any): string {
+  const data = err?.response?.data;
+  if (!data) return err?.message ?? String(err);
+  return `${err.message} — ${typeof data === 'string' ? data : JSON.stringify(data)}`;
+}
 
 @Injectable()
 export class NotificationService {
@@ -100,9 +111,20 @@ export class NotificationService {
   async sendTest(mode: NotificationMode, channel: NotificationChannel): Promise<boolean> {
     const msg = `🔔 *ทดสอบการแจ้งเตือน*\nโหมด: ${mode}\nTime: ${new Date().toLocaleString('th-TH')}`;
     const settings = await this.notificationSettingsService.getSettings(mode);
-    return channel === 'telegram'
-      ? this.sendTelegram(msg, mode, settings, null, true)
-      : this.sendLine(msg, mode, settings, null, true);
+    try {
+      // `return await` is load-bearing: returning the promise un-awaited would settle it
+      // outside the try block and the catch below would never see the rejection.
+      return await (channel === 'telegram'
+        ? this.sendTelegram(msg, mode, settings, null, true)
+        : this.sendLine(msg, mode, settings, null, true));
+    } catch (err) {
+      // Unlike the fan-out paths, a failed test send has someone watching: hand the
+      // provider's reason to the dashboard instead of letting a raw AxiosError become a 500
+      // whose only detail is a stack trace in the server log.
+      const detail = providerDetail(err);
+      this.logger.error(`[${mode}] ทดสอบส่ง ${channel} ไม่สำเร็จ: ${detail}`);
+      throw new BadGatewayException(detail);
+    }
   }
 
   /**
@@ -127,7 +149,7 @@ export class NotificationService {
       );
       this.logger.log(`[${mode}] ตอบกลับ LINE สำเร็จ`);
     } catch (err) {
-      this.logger.error(`[${mode}] LINE reply failed: ${err.message}`);
+      this.logger.error(`[${mode}] LINE reply failed: ${providerDetail(err)}`);
     }
   }
 
@@ -152,7 +174,7 @@ export class NotificationService {
       try {
         await sendFn();
       } catch (err) {
-        this.logger.error(`[${mode}] Send to ${channel} failed: ${err.message}`);
+        this.logger.error(`[${mode}] Send to ${channel} failed: ${providerDetail(err)}`);
       }
     }
   }

@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { NotFoundException } from '@nestjs/common';
 import { NotificationSettingsService } from './notification-settings.service';
 import { NotificationSettingsEntity } from '../../database/entities/notification-settings.entity';
-import { encrypt } from '../../common/crypto.util';
+import { decrypt, encrypt } from '../../common/crypto.util';
 
 const TEST_KEY = 'b'.repeat(64);
 
@@ -195,6 +195,29 @@ describe('NotificationSettingsService', () => {
     it('leaves the stored channel secret untouched when none is provided', async () => {
       repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live' });
       await service.updateSettings('live', { lineEnabled: true });
+      expect(repo.update.mock.calls[0][1]).not.toHaveProperty('lineChannelSecretEnc');
+    });
+
+    // A trailing newline off the clipboard is invisible in the form and made LINE answer a
+    // bare 401 with nothing to debug.
+    it('trims whitespace pasted around a token before encrypting it', async () => {
+      repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live', lineChannelAccessTokenEnc: null });
+      await service.updateSettings('live', { lineChannelAccessToken: '  real-token\n' });
+      expect(decrypt(repo.update.mock.calls[0][1].lineChannelAccessTokenEnc, TEST_KEY)).toBe('real-token');
+    });
+
+    it('trims pasted ids too, so a whitespace-only id is stored as empty', async () => {
+      repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live' });
+      await service.updateSettings('live', { lineGroupId: 'Cgroup123\n', lineUserId: '   ' });
+      const patch = repo.update.mock.calls[0][1];
+      expect(patch.lineGroupId).toBe('Cgroup123');
+      expect(patch.lineUserId).toBe('');
+    });
+
+    // '\n'.trim() is falsy, so it must not overwrite a good stored secret with a blank one.
+    it('treats a whitespace-only secret as absent and keeps the stored value', async () => {
+      repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live' });
+      await service.updateSettings('live', { lineChannelSecret: '  \n' });
       expect(repo.update.mock.calls[0][1]).not.toHaveProperty('lineChannelSecretEnc');
     });
 
