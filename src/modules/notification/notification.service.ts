@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { CDCResult, Position } from '../../common/types';
+import {
+  NotificationSettingsService,
+  NotificationMode,
+} from '../notification-settings/notification-settings.service';
 
 @Injectable()
 export class NotificationService {
@@ -9,18 +13,17 @@ export class NotificationService {
   private channel: string;
   private telegramToken: string;
   private telegramChatId: string;
-  private lineAccessToken: string;
-  private lineTo: string;
 
-  constructor(private configService: ConfigService) {
-    this.channel       = this.configService.get<string>('notification.channel', 'telegram');
-    this.telegramToken = this.configService.get<string>('notification.telegram.botToken');
-    this.telegramChatId= this.configService.get<string>('notification.telegram.chatId');
-    this.lineAccessToken = this.configService.get<string>('notification.line.accessToken');
-    this.lineTo          = this.configService.get<string>('notification.line.to');
+  constructor(
+    private configService: ConfigService,
+    private notificationSettingsService: NotificationSettingsService,
+  ) {
+    this.channel        = this.configService.get<string>('notification.channel', 'telegram');
+    this.telegramToken  = this.configService.get<string>('notification.telegram.botToken');
+    this.telegramChatId = this.configService.get<string>('notification.telegram.chatId');
   }
 
-  async sendSignal(signal: 'BUY' | 'SELL', cdc: CDCResult, price: number): Promise<void> {
+  async sendSignal(signal: 'BUY' | 'SELL', cdc: CDCResult, price: number, mode: NotificationMode): Promise<void> {
     const emoji = signal === 'BUY' ? '🟢' : '🔴';
     const msg =
       `${emoji} *CDC Action Zone Signal: ${signal}*\n` +
@@ -29,10 +32,10 @@ export class NotificationService {
       `EMA12: ${cdc.emaFast.toFixed(2)} | EMA26: ${cdc.emaSlow.toFixed(2)}\n` +
       `Time: ${new Date().toLocaleString('th-TH')}`;
 
-    await this.send(msg);
+    await this.send(msg, mode, 'notifyOpen');
   }
 
-  async sendOpenPosition(position: Position): Promise<void> {
+  async sendOpenPosition(position: Position, mode: NotificationMode): Promise<void> {
     const sideText = position.side === 'long' ? 'Long' : 'Short';
     const msg =
       `📈 *เปิด ${sideText} Position*\n` +
@@ -43,13 +46,14 @@ export class NotificationService {
       `Take Profit: ${position.takeProfit.toFixed(2)}\n` +
       `Time: ${new Date().toLocaleString('th-TH')}`;
 
-    await this.send(msg);
+    await this.send(msg, mode, 'notifyOpen');
   }
 
   async sendClosePosition(
     position: Position,
     reason: 'SIGNAL' | 'SL' | 'TP' | 'MANUAL' | 'SYNC',
     currentPrice: number,
+    mode: NotificationMode,
   ): Promise<void> {
     const pnl = position.closedPnl ?? 0;
     const emoji = pnl >= 0 ? '✅' : '❌';
@@ -64,21 +68,32 @@ export class NotificationService {
       `PnL: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} USDT\n` +
       `Time: ${new Date().toLocaleString('th-TH')}`;
 
-    await this.send(msg);
+    const flag = reason === 'SL' || reason === 'TP' ? 'notifyTpSl' : 'notifyClose';
+    await this.send(msg, mode, flag);
   }
 
-  async sendError(message: string): Promise<void> {
+  async sendError(message: string, mode: NotificationMode): Promise<void> {
     // Exchange errors routinely contain *, _, [ — with parse_mode:'Markdown' Telegram
     // rejects an unbalanced message with 400 and the alert is silently lost. Strip the
     // Markdown-significant characters from the (untrusted) error text before sending.
     const safe = message.replace(/[*_[\]`]/g, '');
-    await this.send(`⚠️ *Bot Error*\n${safe}`);
+    await this.send(`⚠️ *Bot Error*\n${safe}`, mode, 'notifyError');
+  }
+
+  /** Explicit user-triggered test send — bypasses per-event flags, still requires `enabled` + LINE config. */
+  async sendTest(mode: NotificationMode): Promise<void> {
+    const msg = `🔔 *ทดสอบการแจ้งเตือน*\nโหมด: ${mode}\nTime: ${new Date().toLocaleString('th-TH')}`;
+    await this.send(msg, mode, null);
   }
 
   // ──────────────────────────────────────────────
   //  Internal send
   // ──────────────────────────────────────────────
-  private async send(message: string): Promise<void> {
+  private async send(
+    message: string,
+    mode: NotificationMode,
+    eventFlag: 'notifyOpen' | 'notifyClose' | 'notifyTpSl' | 'notifyError' | null,
+  ): Promise<void> {
     const targets = this.channel === 'both'
       ? ['telegram', 'line']
       : [this.channel];
@@ -86,7 +101,7 @@ export class NotificationService {
     for (const target of targets) {
       try {
         if (target === 'telegram') await this.sendTelegram(message);
-        if (target === 'line')     await this.sendLine(message);
+        if (target === 'line')     await this.sendLine(message, mode, eventFlag);
       } catch (err) {
         this.logger.error(`Send to ${target} failed: ${err.message}`);
       }
@@ -106,18 +121,33 @@ export class NotificationService {
     this.logger.log('ส่ง Telegram สำเร็จ');
   }
 
-  private async sendLine(message: string): Promise<void> {
-    if (!this.lineAccessToken || !this.lineTo) {
-      this.logger.warn('LINE Messaging API config ไม่ครบ');
+  private async sendLine(
+    message: string,
+    mode: NotificationMode,
+    eventFlag: 'notifyOpen' | 'notifyClose' | 'notifyTpSl' | 'notifyError' | null,
+  ): Promise<void> {
+    const settings = await this.notificationSettingsService.getSettings(mode);
+    if (!settings.enabled) {
+      this.logger.debug(`[${mode}] LINE notifications disabled — skip`);
+      return;
+    }
+    if (eventFlag && !settings[eventFlag]) {
+      this.logger.debug(`[${mode}] LINE event '${eventFlag}' disabled — skip`);
+      return;
+    }
+    const lineTo = settings.lineGroupId || settings.lineUserId;
+    const lineToken = await this.notificationSettingsService.getDecryptedToken(mode);
+    if (!lineToken || !lineTo) {
+      this.logger.debug(`[${mode}] LINE config ไม่ครบ — skip`);
       return;
     }
     // ลบ Markdown formatting สำหรับ LINE
     const plainText = message.replace(/\*/g, '');
     await axios.post(
       'https://api.line.me/v2/bot/message/push',
-      { to: this.lineTo, messages: [{ type: 'text', text: plainText }] },
-      { headers: { Authorization: `Bearer ${this.lineAccessToken}`, 'Content-Type': 'application/json' } },
+      { to: lineTo, messages: [{ type: 'text', text: plainText }] },
+      { headers: { Authorization: `Bearer ${lineToken}`, 'Content-Type': 'application/json' } },
     );
-    this.logger.log('ส่ง LINE Messaging API สำเร็จ');
+    this.logger.log(`[${mode}] ส่ง LINE Messaging API สำเร็จ`);
   }
 }

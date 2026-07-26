@@ -53,7 +53,7 @@ The project has two parts in the same folder:
         ↓ BUY/SELL/HOLD
 [TradingService]                     ← openLong/closeLong, openShort/closeShort (both directions traded)
         ↓                              uses exchangeLive (live) or exchangeDemo (sandbox)
-[NotificationService]                ← Telegram / LINE — live mode only, sandbox is silent
+[NotificationService]                ← Telegram (env-config) / LINE (per-mode DB config, see notification-settings)
 ```
 
 The strategy is long **and** short: a BUY signal closes open shorts then opens long; a SELL signal closes open longs then opens short.
@@ -130,6 +130,7 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 ### Required env / boot-time validation
 
 - `JWT_SECRET` — boot throws if unset or < 32 chars (`openssl rand -hex 32`).
+- `TOKEN_ENCRYPTION_KEY` — boot throws if unset or not exactly 64 hex chars (`openssl rand -hex 32`). AES-256-GCM key encrypting the LINE channel access token stored per-mode in `notification_settings` (`src/common/crypto.util.ts`) — never reused for `JWT_SECRET`.
 - `ADMIN_PASSWORD` — first-run admin seeding throws if unset, still `admin1234`, or < 8 chars.
 - `DATABASE_URL` (optional) — if set, takes priority over `DB_HOST`/`DB_USER`/etc.; SSL auto-enables in production or when the URL host looks like Railway/Supabase/Neon.
 - `DASHBOARD_ORIGIN` (optional, comma-separated) — CORS allowlist. In production an unset allowlist **fails closed** (no cross-origin requests) since the dashboard is served same-origin; in dev CORS is permissive by default.
@@ -173,6 +174,9 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 | `DELETE /api/settings/:mode/pairs?symbol=` | Remove a pair — refuses if positions are still open |
 | `POST /api/positions/:id/close` | Manually market-close a single position by id |
 | `GET /api/health` | Uptime check |
+| `GET /api/settings/notifications/:mode` | Per-mode LINE notification settings — token always returned masked (e.g. `8Ff2•••wQ8f`) |
+| `PUT /api/settings/notifications/:mode` | Update per-mode LINE notification settings; a provided token is encrypted before storage, omitted token leaves the stored one untouched |
+| `POST /api/settings/notifications/:mode/test` | Send a real LINE test push for that mode and record `lastSentAt` |
 
 ## Key files
 
@@ -180,11 +184,14 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 - `src/modules/strategy/strategy.service.ts` — trading loop, cron scheduling, per-pair signal state
 - `src/modules/trading/trading.service.ts` — order execution, protective orders, position sync (long + short)
 - `src/modules/trading-settings/trading-settings.service.ts` — per-(mode, symbol) settings CRUD
+- `src/modules/notification-settings/notification-settings.service.ts` — per-mode LINE settings CRUD, token encrypt/decrypt/mask
+- `src/common/crypto.util.ts` — AES-256-GCM encrypt/decrypt for the LINE access token at rest
 - `src/modules/market-data/market-data.service.ts` — exchange instances + WebSocket kline streaming
 - `src/modules/auth/` — JWT authentication (login, guard, admin-user seeding)
-- `src/database/entities/` — TypeORM entities (`position`, `trade-log`, `trading-settings`, `user`)
-- `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt credentials)
+- `src/database/entities/` — TypeORM entities (`position`, `trade-log`, `trading-settings`, `notification-settings`, `user`)
+- `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt/token-encryption credentials)
 - `src/app.module.ts` — TypeORM/DATABASE_URL wiring, static dashboard serving, throttler
 - `dashboard/src/App.jsx` — main React app, auth state, data fetching
 - `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
 - `dashboard/src/components/Settings.jsx` — per-pair settings form
+- `dashboard/src/components/NotificationSettings.jsx` — per-mode LINE notification settings form

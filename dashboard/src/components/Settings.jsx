@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTheme } from '../ThemeContext.jsx';
 import { ACCENT_PRESETS } from '../theme.js';
 import { Chevron } from './icons.jsx';
+import NotificationSettings from './NotificationSettings.jsx';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const CARD_SHADOW = '0 1px 2px rgba(40,48,58,.05), 0 14px 36px -28px rgba(40,48,58,.3)';
@@ -277,7 +278,7 @@ function AddPairRow({ mode, onAdd }) {
   );
 }
 
-export default function Settings({ settings, activeMode, onSave, onAddPair, onRemovePair }) {
+export default function Settings({ settings, activeMode, onModeChange, onSave, onAddPair, onRemovePair }) {
   // The design has no mode switch in this card — the header segmented control owns it
   const tab = activeMode ?? 'live';
 
@@ -287,6 +288,8 @@ export default function Settings({ settings, activeMode, onSave, onAddPair, onRe
   return (
     <div className="animate-sbfade">
       <Appearance />
+
+      <NotificationSettings mode={tab} onModeChange={onModeChange} />
 
       <Section>
         <h2 className="text-[18px] font-semibold m-0 mb-1">Trading Settings</h2>

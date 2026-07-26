@@ -4,9 +4,12 @@ import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { NotificationSettingsService, NotificationMode } from '../notification-settings/notification-settings.service';
+import { NotificationService } from '../notification/notification.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UpdateSettingsDto, SYMBOL_PATTERN, VALID_TIMEFRAMES } from './dto/update-settings.dto';
 import { AddPairDto } from './dto/add-pair.dto';
+import { UpdateNotificationSettingsDto } from '../notification-settings/dto/update-notification-settings.dto';
 import { ParseModePipe } from './mode.pipe';
 
 @UseGuards(JwtAuthGuard)
@@ -18,6 +21,8 @@ export class DashboardController {
     private marketDataService: MarketDataService,
     private cdcService: CdcActionZoneService,
     private settingsService: TradingSettingsService,
+    private notificationSettingsService: NotificationSettingsService,
+    private notificationService: NotificationService,
   ) {}
 
   /** สถานะ bot — returns pairs array + aggregate fields for backward compat */
@@ -252,5 +257,27 @@ export class DashboardController {
     }
 
     return updated;
+  }
+
+  /** LINE notification settings for one mode — token always returned masked */
+  @Get('settings/notifications/:mode')
+  getNotificationSettings(@Param('mode', ParseModePipe) mode: NotificationMode) {
+    return this.notificationSettingsService.getMaskedSettings(mode);
+  }
+
+  /** Update LINE notification settings for one mode */
+  @Put('settings/notifications/:mode')
+  updateNotificationSettings(
+    @Param('mode', ParseModePipe) mode: NotificationMode,
+    @Body() body: UpdateNotificationSettingsDto,
+  ) {
+    return this.notificationSettingsService.updateSettings(mode, body);
+  }
+
+  /** Send a real LINE test push for one mode and record lastSentAt */
+  @Post('settings/notifications/:mode/test')
+  async sendTestNotification(@Param('mode', ParseModePipe) mode: NotificationMode) {
+    await this.notificationService.sendTest(mode);
+    return this.notificationSettingsService.markSent(mode);
   }
 }

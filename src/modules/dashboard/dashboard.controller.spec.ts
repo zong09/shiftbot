@@ -5,6 +5,8 @@ import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
+import { NotificationSettingsService } from '../notification-settings/notification-settings.service';
+import { NotificationService } from '../notification/notification.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CDCZone, CDCResult, Position, TradeLog } from '../../common/types';
 
@@ -87,6 +89,24 @@ function makeCdcService(): jest.Mocked<Partial<CdcActionZoneService>> {
   } as any;
 }
 
+function makeNotificationSettingsService(): jest.Mocked<Partial<NotificationSettingsService>> {
+  return {
+    getMaskedSettings: jest.fn().mockResolvedValue({
+      mode: 'live', enabled: false, lineWebhookUrl: null, lineChannelAccessToken: null,
+      lineGroupId: null, lineUserId: null, notifyOpen: true, notifyClose: true,
+      notifyTpSl: true, notifyError: true, notifyDailySummary: false, lastSentAt: null,
+    }),
+    updateSettings: jest.fn().mockResolvedValue({}),
+    markSent: jest.fn().mockResolvedValue({}),
+  } as any;
+}
+
+function makeNotificationService(): jest.Mocked<Partial<NotificationService>> {
+  return {
+    sendTest: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
 // ─── test suite ──────────────────────────────────────────────────────────────
 
 describe('DashboardController', () => {
@@ -95,12 +115,16 @@ describe('DashboardController', () => {
   let strategySvc: ReturnType<typeof makeStrategyService>;
   let marketDataSvc: ReturnType<typeof makeMarketDataService>;
   let cdcSvc: ReturnType<typeof makeCdcService>;
+  let notificationSettingsSvc: ReturnType<typeof makeNotificationSettingsService>;
+  let notificationSvc: ReturnType<typeof makeNotificationService>;
 
   beforeEach(async () => {
     tradingSvc    = makeTradingService();
     strategySvc   = makeStrategyService();
     marketDataSvc = makeMarketDataService();
     cdcSvc        = makeCdcService();
+    notificationSettingsSvc = makeNotificationSettingsService();
+    notificationSvc = makeNotificationService();
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DashboardController],
@@ -110,6 +134,8 @@ describe('DashboardController', () => {
         { provide: MarketDataService,     useValue: marketDataSvc },
         { provide: CdcActionZoneService,  useValue: cdcSvc },
         { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), getAllSettings: jest.fn().mockResolvedValue([{ symbol: 'BTC/USDT:USDT', timeframe: '1h', status: 'on' }]), updateSettings: jest.fn().mockResolvedValue({}) } },
+        { provide: NotificationSettingsService, useValue: notificationSettingsSvc },
+        { provide: NotificationService,         useValue: notificationSvc },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -321,6 +347,32 @@ describe('DashboardController', () => {
     it('is synchronous and never returns a Promise', () => {
       const response = controller.health();
       expect(response).not.toBeInstanceOf(Promise);
+    });
+  });
+
+  // ── Notification settings ────────────────────────────────────────────────
+
+  describe('GET /api/settings/notifications/:mode', () => {
+    it('returns masked settings for the requested mode', async () => {
+      const response = await controller.getNotificationSettings('live');
+      expect(notificationSettingsSvc.getMaskedSettings).toHaveBeenCalledWith('live');
+      expect(response).toHaveProperty('lineChannelAccessToken', null);
+    });
+  });
+
+  describe('PUT /api/settings/notifications/:mode', () => {
+    it('delegates to notificationSettingsService.updateSettings', async () => {
+      const body = { enabled: true, lineWebhookUrl: 'https://api.line.me/v2/bot/message/push' };
+      await controller.updateNotificationSettings('sandbox', body as any);
+      expect(notificationSettingsSvc.updateSettings).toHaveBeenCalledWith('sandbox', body);
+    });
+  });
+
+  describe('POST /api/settings/notifications/:mode/test', () => {
+    it('sends a test notification then marks it sent', async () => {
+      await controller.sendTestNotification('live');
+      expect(notificationSvc.sendTest).toHaveBeenCalledWith('live');
+      expect(notificationSettingsSvc.markSent).toHaveBeenCalledWith('live');
     });
   });
 });

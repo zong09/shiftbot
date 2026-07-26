@@ -160,26 +160,27 @@ describe('StrategyService', () => {
       expect(tradingSvc.openLong).toHaveBeenCalledWith(result.close, result.zone, 'sandbox', 'BTC/USDT:USDT');
     });
 
-    it('sends a BUY notification for live mode only when signal is BUY', async () => {
+    it('sends a BUY notification for both modes when signal is BUY', async () => {
       const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
       await buildModule(result);
       await service.runStrategy();
-      const liveNotifyCalls = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
+      const buyNotifyCalls = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
         (args) => args[0] === 'BUY',
       );
-      expect(liveNotifyCalls).toHaveLength(1);
+      expect(buyNotifyCalls).toHaveLength(2);
+      expect(buyNotifyCalls.map((args) => args[3]).sort()).toEqual(['live', 'sandbox']);
     });
 
-    it('sends the BUY notification once across repeated runs of the same transition', async () => {
+    it('sends the BUY notification once per mode across repeated runs of the same transition', async () => {
       const result = makeCdcResult({ signal: 'BUY', isBullish: true, isBearish: false });
       await buildModule(result);
       await service.runStrategy();
       await service.runStrategy();
-      const liveBuyNotifies = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
+      const buyNotifies = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
         (args) => args[0] === 'BUY',
       );
-      // one per mode (live only) — NOT doubled by the second run
-      expect(liveBuyNotifies).toHaveLength(1);
+      // one per mode — NOT doubled by the second run
+      expect(buyNotifies).toHaveLength(2);
     });
 
     it('still calls openLong on BUY — maxPositions is enforced inside TradingService', async () => {
@@ -209,7 +210,7 @@ describe('StrategyService', () => {
       );
     });
 
-    it('sends a SELL notification for live mode only when signal is SELL', async () => {
+    it('sends a SELL notification for both modes when signal is SELL', async () => {
       const result = makeCdcResult({
         signal: 'SELL', isBullish: false, isBearish: true, zone: CDCZone.STRONG_BEAR,
       });
@@ -218,7 +219,7 @@ describe('StrategyService', () => {
       const sellCalls = (notificationSvc.sendSignal as jest.Mock).mock.calls.filter(
         (args) => args[0] === 'SELL',
       );
-      expect(sellCalls).toHaveLength(1);
+      expect(sellCalls).toHaveLength(2);
     });
 
     it('does not call closeLong when there are no open positions on SELL signal', async () => {
@@ -243,12 +244,13 @@ describe('StrategyService', () => {
 
     // ── Error handling ───────────────────────────────────────────────────────
 
-    it('sends error notification for live mode when runForMode throws', async () => {
+    it('sends an error notification for both modes when runForMode throws', async () => {
       const result = makeCdcResult({ signal: 'BUY' });
       await buildModule(result);
       (tradingSvc.openLong as jest.Mock).mockRejectedValue(new Error('exchange error'));
       await service.runStrategy();
-      expect(notificationSvc.sendError).toHaveBeenCalledWith('exchange error');
+      expect(notificationSvc.sendError).toHaveBeenCalledWith('exchange error', 'live');
+      expect(notificationSvc.sendError).toHaveBeenCalledWith('exchange error', 'sandbox');
     });
 
     it('resets isRunning flag even when an error occurs (finally block)', async () => {

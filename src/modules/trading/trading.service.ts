@@ -190,10 +190,11 @@ export class TradingService implements OnApplicationBootstrap {
 
     // A leveraged position with one-sided (or no) protection must not sit silently —
     // alert the operator to intervene rather than only logging.
-    if (mode === 'live' && (!slOrderId || !tpOrderId)) {
+    if (!slOrderId || !tpOrderId) {
       const missing = [!slOrderId && 'SL', !tpOrderId && 'TP'].filter(Boolean).join(' + ');
       await this.notificationService.sendError(
         `${symbol}: วาง protective order ${missing} ไม่สำเร็จหลัง retry — position อาจไม่มี ${missing} บน exchange`,
+        mode,
       );
     }
 
@@ -444,9 +445,7 @@ export class TradingService implements OnApplicationBootstrap {
         `[${mode}][${symbol}] CLOSE LONG (${reason}) | Price=${exitPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
 
-      if (mode === 'live') {
-        await this.notificationService.sendClosePosition(position, reason, exitPrice);
-      }
+      await this.notificationService.sendClosePosition(position, reason, exitPrice, mode);
       return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeLong bookkeeping error: ` + err.message);
@@ -605,9 +604,7 @@ export class TradingService implements OnApplicationBootstrap {
         `[${mode}][${symbol}] CLOSE SHORT (${reason}) | Price=${exitPrice} | PnL=${pnl.toFixed(2)} USDT`,
       );
 
-      if (mode === 'live') {
-        await this.notificationService.sendClosePosition(position, reason, exitPrice);
-      }
+      await this.notificationService.sendClosePosition(position, reason, exitPrice, mode);
       return true;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] closeShort bookkeeping error: ` + err.message);
@@ -753,12 +750,10 @@ export class TradingService implements OnApplicationBootstrap {
             })
           );
 
-          // syncPositions is the live SL/TP path (native exchange orders fill
+          // syncPositions is the SL/TP path (native exchange orders fill
           // on Binance, not through closeLong/closeShort), so notify here too.
-          if (mode === 'live') {
-            localPos.closedPnl = pnl;
-            await this.notificationService.sendClosePosition(localPos, 'SYNC', price || localPos.entryPrice);
-          }
+          localPos.closedPnl = pnl;
+          await this.notificationService.sendClosePosition(localPos, 'SYNC', price || localPos.entryPrice, mode);
         }
       }
     } catch (err) {

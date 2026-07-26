@@ -9,6 +9,17 @@ const requireJwtSecret = (): string => {
   return secret;
 };
 
+const requireTokenEncryptionKey = (): string => {
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+  if (!key || key.length !== 64 || !/^[0-9a-fA-F]{64}$/.test(key)) {
+    throw new Error(
+      '[Config] TOKEN_ENCRYPTION_KEY must be set as a 64-character hex string (32 bytes). ' +
+        'Generate one with: openssl rand -hex 32',
+    );
+  }
+  return key;
+};
+
 export default () => ({
   port: parseInt(process.env.PORT, 10) || 3001,
 
@@ -22,6 +33,10 @@ export default () => ({
   jwt: {
     secret: requireJwtSecret(),
     expiry: process.env.JWT_EXPIRY || '24h',
+  },
+
+  security: {
+    tokenEncryptionKey: requireTokenEncryptionKey(),
   },
 
   admin: {

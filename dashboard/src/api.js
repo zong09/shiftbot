@@ -46,3 +46,7 @@ export const updateSettings = (mode, data)    => client.put(`/settings/${mode}`,
 export const addPair        = (mode, symbol)  => client.post(`/settings/${mode}/pairs`, { symbol }).then(r => r.data);
 export const removePair     = (mode, symbol)  => client.delete(`/settings/${mode}/pairs?symbol=${encodeURIComponent(symbol)}`).then(r => r.data);
 export const closePosition  = (id)            => client.post(`/positions/${id}/close`).then(r => r.data);
+
+export const fetchNotificationSettings  = (mode) => client.get(`/settings/notifications/${mode}`).then(r => r.data);
+export const updateNotificationSettings = (mode, data) => client.put(`/settings/notifications/${mode}`, data).then(r => r.data);
+export const sendTestNotification       = (mode) => client.post(`/settings/notifications/${mode}/test`).then(r => r.data);

@@ -507,19 +507,21 @@ describe('TradingService', () => {
     });
   });
 
-  // ── close notifications (live gate) ───────────────────────────────────────
+  // ── close notifications ────────────────────────────────────────────────────
+  // NotificationService itself now decides (per-mode DB config) whether a LINE
+  // push actually goes out — TradingService always forwards the mode through.
 
   describe('close notifications', () => {
     it('notifies on close in live mode with the given reason', async () => {
       const pos = makeOpenPosition({ mode: 'live' });
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'live');
-      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'SIGNAL', 51_000);
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'SIGNAL', 51_000, 'live');
     });
 
-    it('does NOT notify on close in sandbox mode', async () => {
+    it('notifies on close in sandbox mode too, tagged with mode=sandbox', async () => {
       const pos = makeOpenPosition({ mode: 'sandbox' });
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'SIGNAL', 'sandbox');
-      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'SIGNAL', 51_000, 'sandbox');
     });
 
     it('passes the real pnl on the position to the notifier (not 0)', async () => {
@@ -532,7 +534,7 @@ describe('TradingService', () => {
     it('forwards a MANUAL reason to the notifier', async () => {
       const pos = makeOpenPosition({ mode: 'live' });
       await service.closeLong(pos, 51_000, CDCZone.BEAR, 'MANUAL', 'live');
-      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'MANUAL', 51_000);
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'MANUAL', 51_000, 'live');
     });
 
     it('notifies on closeShort in live mode with the exchange fill price', async () => {
@@ -540,7 +542,7 @@ describe('TradingService', () => {
       // fill price, not the currentPrice argument
       const pos = makeOpenPosition({ side: 'short', mode: 'live' });
       await service.closeShort(pos, 49_000, CDCZone.BULL, 'TP', 'live');
-      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'TP', 50_100);
+      expect(notificationService.sendClosePosition).toHaveBeenCalledWith(pos, 'TP', 50_100, 'live');
     });
 
     it('does NOT notify when the close fails on-exchange', async () => {
@@ -560,11 +562,14 @@ describe('TradingService', () => {
       expect(notified.closedPnl).toBeCloseTo(12.5, 5);
     });
 
-    it('does NOT notify on sync-close in sandbox mode', async () => {
+    it('notifies with reason SYNC in sandbox mode too, tagged with mode=sandbox', async () => {
       const pos = makeOpenPosition({ mode: 'sandbox' });
       positionRepo.find.mockResolvedValue([pos]);
       await service.syncPositions('sandbox', 'BTC/USDT:USDT');
-      expect(notificationService.sendClosePosition).not.toHaveBeenCalled();
+      expect(notificationService.sendClosePosition).toHaveBeenCalledTimes(1);
+      const call = (notificationService.sendClosePosition as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('SYNC');
+      expect(call[3]).toBe('sandbox');
     });
   });
 

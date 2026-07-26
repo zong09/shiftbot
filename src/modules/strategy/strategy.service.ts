@@ -193,8 +193,8 @@ export class StrategyService implements OnModuleInit {
       if (result.signal === 'BUY') {
         this.logger.log(`[${mode}][${symbol}] 🟢 BUY Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
-          await this.notificationService.sendSignal('BUY', result, currentPrice);
+        if (ctx.lastNotifiedSignalKey !== signalKey) {
+          await this.notificationService.sendSignal('BUY', result, currentPrice, mode);
           ctx.lastNotifiedSignalKey = signalKey;
         }
 
@@ -219,15 +219,15 @@ export class StrategyService implements OnModuleInit {
         // แต่ throw เมื่อสั่ง order ล้มเหลว → หลุดไป catch ด้านล่างโดยไม่อัปเดต
         // ctx.lastZone ทำให้สัญญาณ BUY ถูกยิงซ้ำแท่งถัดไปแทนที่จะหายถาวร
         const position = await this.tradingService.openLong(currentPrice, result.zone, mode, symbol);
-        if (position && mode === 'live') {
-          await this.notificationService.sendOpenPosition(position);
+        if (position) {
+          await this.notificationService.sendOpenPosition(position, mode);
         }
 
       } else if (result.signal === 'SELL') {
         this.logger.log(`[${mode}][${symbol}] 🔴 SELL Signal | Zone: ${result.zoneName}`);
 
-        if (mode === 'live' && ctx.lastNotifiedSignalKey !== signalKey) {
-          await this.notificationService.sendSignal('SELL', result, currentPrice);
+        if (ctx.lastNotifiedSignalKey !== signalKey) {
+          await this.notificationService.sendSignal('SELL', result, currentPrice, mode);
           ctx.lastNotifiedSignalKey = signalKey;
         }
 
@@ -251,8 +251,8 @@ export class StrategyService implements OnModuleInit {
         // Open Short — semantics เดียวกับ openLong ด้านบน: null = ชน maxPositions,
         // throw = order ล้มเหลว → ไม่อัปเดต ctx.lastZone → retry แท่งถัดไป
         const position = await this.tradingService.openShort(currentPrice, result.zone, mode, symbol);
-        if (position && mode === 'live') {
-          await this.notificationService.sendOpenPosition(position);
+        if (position) {
+          await this.notificationService.sendOpenPosition(position, mode);
         }
 
       } else {
@@ -263,9 +263,7 @@ export class StrategyService implements OnModuleInit {
       ctx.lastZone = result.zone;
     } catch (err) {
       this.logger.error(`[${mode}][${symbol}] runStrategy error: ` + err.message);
-      if (mode === 'live') {
-        await this.notificationService.sendError(err.message);
-      }
+      await this.notificationService.sendError(err.message, mode);
     } finally {
       ctx.isRunning = false;
     }

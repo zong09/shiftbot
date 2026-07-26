@@ -9,8 +9,10 @@ import configuration from './config/configuration';
 import { PositionEntity } from './database/entities/position.entity';
 import { TradeLogEntity } from './database/entities/trade-log.entity';
 import { TradingSettingsEntity } from './database/entities/trading-settings.entity';
+import { NotificationSettingsEntity } from './database/entities/notification-settings.entity';
 import { UserEntity } from './database/entities/user.entity';
 import { TradingSettingsModule } from './modules/trading-settings/trading-settings.module';
+import { NotificationSettingsModule } from './modules/notification-settings/notification-settings.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
 import { IndicatorsModule } from './modules/indicators/indicators.module';
 import { TradingModule } from './modules/trading/trading.module';
@@ -42,7 +44,7 @@ import { AuthModule } from './modules/auth/auth.module';
           return {
             type: 'postgres',
             url,
-            entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
+            entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, NotificationSettingsEntity, UserEntity],
             synchronize,
             ssl: useSsl ? { rejectUnauthorized } : false,
             retryAttempts: 2,
@@ -55,7 +57,7 @@ import { AuthModule } from './modules/auth/auth.module';
           username: config.get<string>('database.user'),
           password: config.get<string>('database.password'),
           database: config.get<string>('database.name'),
-          entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, UserEntity],
+          entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, NotificationSettingsEntity, UserEntity],
           synchronize,
           ssl: useSsl ? { rejectUnauthorized } : false,
           retryAttempts: 2,
@@ -67,6 +69,7 @@ import { AuthModule } from './modules/auth/auth.module';
       exclude: ['/api/(.*)'],
     }),
     TradingSettingsModule,
+    NotificationSettingsModule,
     MarketDataModule,
     IndicatorsModule,
     TradingModule,
