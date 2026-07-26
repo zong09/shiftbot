@@ -23,6 +23,19 @@ function maskToken(token: string): string {
   return `${token.slice(0, 4)}${'•'.repeat(token.length - 6)}${token.slice(-2)}`;
 }
 
+/**
+ * Every credential and id here is pasted from a provider console, and a clipboard copy
+ * routinely drags a trailing newline along. The whitespace is invisible in the form but
+ * travels into the `Authorization` header or the `to` field, where the provider rejects it
+ * as a bare 401/400 with nothing in the message to debug. Trimming on the way in is the
+ * only place that catches it — a stored value can no longer be told apart from a good one.
+ */
+function trimStrings<T extends object>(dto: T): T {
+  return Object.fromEntries(
+    Object.entries(dto).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : value]),
+  ) as T;
+}
+
 @Injectable()
 export class NotificationSettingsService {
   private readonly logger = new Logger(NotificationSettingsService.name);
@@ -128,7 +141,7 @@ export class NotificationSettingsService {
     if (!existing) {
       throw new NotFoundException(`no notification settings for mode '${mode}'`);
     }
-    const { lineChannelAccessToken, lineChannelSecret, telegramBotToken, ...rest } = dto;
+    const { lineChannelAccessToken, lineChannelSecret, telegramBotToken, ...rest } = trimStrings(dto);
     const patch: Partial<NotificationSettingsEntity> = { ...rest };
     if (lineChannelAccessToken) {
       patch.lineChannelAccessTokenEnc = encrypt(lineChannelAccessToken, this.encryptionKey());

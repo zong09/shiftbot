@@ -206,6 +206,16 @@ describe('NotificationService', () => {
       expect(mockedAxios.post).not.toHaveBeenCalled();
     });
 
+    // A bare "Request failed with status code 401" says nothing about which credential is
+    // wrong — the reason LINE returns in the body has to reach the dashboard.
+    it('surfaces the provider reason when the send fails', async () => {
+      mockedAxios.post.mockRejectedValue({
+        message: 'Request failed with status code 401',
+        response: { data: { message: 'Authentication failed due to an invalid access token' } },
+      });
+      await expect(service.sendTest('live', 'line')).rejects.toThrow(/invalid access token/);
+    });
+
     it('reports false when LINE has no push target', async () => {
       (settingsSvc.getSettings as jest.Mock).mockResolvedValue(
         settings({ lineGroupId: null, lineUserId: null }),
