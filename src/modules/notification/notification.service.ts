@@ -86,6 +86,32 @@ export class NotificationService {
     await this.send(msg, mode, null);
   }
 
+  /**
+   * ตอบกลับเข้า chat ที่ยิง webhook มา (ใช้บอก groupId ตอนบอทถูกเชิญเข้ากลุ่ม).
+   *
+   * ต่างจาก sendLine โดยตั้งใจ 2 อย่าง: ไม่เช็ค settings.enabled (การหา groupId
+   * เกิดก่อนผู้ใช้เปิดสวิตช์แจ้งเตือน — ถ้าเช็คจะหา id ไม่ได้เลย) และกลืน error
+   * ทั้งหมด เพราะ webhook ต้องตอบ 200 ให้ LINE ไม่งั้นโดน retry ซ้ำ
+   * (getDecryptedToken throw ได้เมื่อ TOKEN_ENCRYPTION_KEY ถูก rotate)
+   */
+  async replyLine(mode: NotificationMode, replyToken: string, text: string): Promise<void> {
+    try {
+      const lineToken = await this.notificationSettingsService.getDecryptedToken(mode);
+      if (!lineToken) {
+        this.logger.warn(`[${mode}] ยังไม่ได้ตั้ง LINE channel access token — ตอบกลับไม่ได้`);
+        return;
+      }
+      await axios.post(
+        'https://api.line.me/v2/bot/message/reply',
+        { replyToken, messages: [{ type: 'text', text }] },
+        { headers: { Authorization: `Bearer ${lineToken}`, 'Content-Type': 'application/json' } },
+      );
+      this.logger.log(`[${mode}] ตอบกลับ LINE สำเร็จ`);
+    } catch (err) {
+      this.logger.error(`[${mode}] LINE reply failed: ${err.message}`);
+    }
+  }
+
   // ──────────────────────────────────────────────
   //  Internal send
   // ──────────────────────────────────────────────

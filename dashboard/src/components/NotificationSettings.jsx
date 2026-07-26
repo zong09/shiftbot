@@ -79,6 +79,7 @@ export default function NotificationSettings({ mode, onModeChange }) {
         enabled: res.enabled,
         lineWebhookUrl: res.lineWebhookUrl ?? '',
         lineChannelAccessToken: '', // never prefilled with the masked placeholder
+        lineChannelSecret: '',      // never prefilled with the masked placeholder
         lineGroupId: res.lineGroupId ?? '',
         lineUserId: res.lineUserId ?? '',
         notifyOpen: res.notifyOpen,
@@ -114,9 +115,10 @@ export default function NotificationSettings({ mode, onModeChange }) {
     try {
       const payload = { ...form };
       if (!payload.lineChannelAccessToken) delete payload.lineChannelAccessToken;
+      if (!payload.lineChannelSecret) delete payload.lineChannelSecret;
       const res = await updateNotificationSettings(mode, payload);
       setData(res);
-      setForm(f => ({ ...f, lineChannelAccessToken: '' }));
+      setForm(f => ({ ...f, lineChannelAccessToken: '', lineChannelSecret: '' }));
       setMsg({ type: 'ok', text: 'บันทึกสำเร็จ' });
     } catch {
       setMsg({ type: 'err', text: 'บันทึกไม่สำเร็จ' });
@@ -184,6 +186,16 @@ export default function NotificationSettings({ mode, onModeChange }) {
             className={FIELD_CLASS}
             value={form.lineChannelAccessToken}
             onChange={e => set('lineChannelAccessToken', e.target.value)}
+          />
+        </label>
+        <label className="block">
+          <span className="block text-[11px] font-semibold text-secondary mb-1.5">CHANNEL SECRET</span>
+          <input
+            type="text"
+            placeholder={data?.lineChannelSecret ?? 'วาง channel secret (ใช้ verify webhook)'}
+            className={FIELD_CLASS}
+            value={form.lineChannelSecret}
+            onChange={e => set('lineChannelSecret', e.target.value)}
           />
         </label>
         <label className="block">

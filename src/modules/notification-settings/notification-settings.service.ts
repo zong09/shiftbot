@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
@@ -10,8 +10,8 @@ export type NotificationMode = 'live' | 'sandbox';
 
 export type MaskedNotificationSettings = Omit<
   NotificationSettingsEntity,
-  'lineChannelAccessTokenEnc'
-> & { lineChannelAccessToken: string | null };
+  'lineChannelAccessTokenEnc' | 'lineChannelSecretEnc'
+> & { lineChannelAccessToken: string | null; lineChannelSecret: string | null };
 
 function maskToken(token: string): string {
   if (token.length <= 6) return '•'.repeat(token.length);
@@ -20,6 +20,8 @@ function maskToken(token: string): string {
 
 @Injectable()
 export class NotificationSettingsService {
+  private readonly logger = new Logger(NotificationSettingsService.name);
+
   constructor(
     @InjectRepository(NotificationSettingsEntity)
     private repo: Repository<NotificationSettingsEntity>,
@@ -44,7 +46,7 @@ export class NotificationSettingsService {
   }
 
   toMaskedDto(entity: NotificationSettingsEntity): MaskedNotificationSettings {
-    const { lineChannelAccessTokenEnc, ...rest } = entity;
+    const { lineChannelAccessTokenEnc, lineChannelSecretEnc, ...rest } = entity;
     let lineChannelAccessToken: string | null = null;
     if (lineChannelAccessTokenEnc) {
       try {
@@ -53,7 +55,15 @@ export class NotificationSettingsService {
         lineChannelAccessToken = null;
       }
     }
-    return { ...rest, lineChannelAccessToken };
+    let lineChannelSecret: string | null = null;
+    if (lineChannelSecretEnc) {
+      try {
+        lineChannelSecret = maskToken(decrypt(lineChannelSecretEnc, this.encryptionKey()));
+      } catch {
+        lineChannelSecret = null;
+      }
+    }
+    return { ...rest, lineChannelAccessToken, lineChannelSecret };
   }
 
   async getMaskedSettings(mode: NotificationMode): Promise<MaskedNotificationSettings> {
@@ -72,6 +82,22 @@ export class NotificationSettingsService {
     }
   }
 
+  // Used by the inbound LINE webhook to verify x-line-signature. Unlike
+  // getDecryptedToken this never throws: an unreadable secret must make the webhook
+  // answer 401, not 500 — a 500 just makes LINE retry the same doomed request.
+  async getDecryptedChannelSecret(mode: NotificationMode): Promise<string | null> {
+    const row = await this.getSettings(mode);
+    if (!row.lineChannelSecretEnc) return null;
+    try {
+      return decrypt(row.lineChannelSecretEnc, this.encryptionKey());
+    } catch {
+      this.logger.error(
+        `stored LINE channel secret for mode '${mode}' is unreadable (TOKEN_ENCRYPTION_KEY likely rotated) — re-save it in settings`,
+      );
+      return null;
+    }
+  }
+
   async updateSettings(
     mode: NotificationMode,
     dto: UpdateNotificationSettingsDto,
@@ -80,10 +106,13 @@ export class NotificationSettingsService {
     if (!existing) {
       throw new NotFoundException(`no notification settings for mode '${mode}'`);
     }
-    const { lineChannelAccessToken, ...rest } = dto;
+    const { lineChannelAccessToken, lineChannelSecret, ...rest } = dto;
     const patch: Partial<NotificationSettingsEntity> = { ...rest };
     if (lineChannelAccessToken) {
       patch.lineChannelAccessTokenEnc = encrypt(lineChannelAccessToken, this.encryptionKey());
+    }
+    if (lineChannelSecret) {
+      patch.lineChannelSecretEnc = encrypt(lineChannelSecret, this.encryptionKey());
     }
     await this.repo.update({ mode }, patch);
     return this.getMaskedSettings(mode);

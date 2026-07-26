@@ -71,6 +71,15 @@ describe('NotificationSettingsService', () => {
       expect(JSON.stringify(result)).not.toContain(raw);
     });
 
+    it('masks the stored channel secret too — never returns the raw value', async () => {
+      const raw = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6';
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelSecretEnc: encrypt(raw, TEST_KEY) });
+      const result = await service.getMaskedSettings('live');
+      expect(result.lineChannelSecret).not.toBe(raw);
+      expect(result).not.toHaveProperty('lineChannelSecretEnc');
+      expect(JSON.stringify(result)).not.toContain(raw);
+    });
+
     it('returns null lineChannelAccessToken instead of throwing when stored ciphertext was encrypted under a different key (e.g. TOKEN_ENCRYPTION_KEY rotated)', async () => {
       const otherKey = 'c'.repeat(64);
       repo.findOne.mockResolvedValue({ mode: 'live', lineChannelAccessTokenEnc: encrypt('some-token', otherKey) });
@@ -98,6 +107,25 @@ describe('NotificationSettingsService', () => {
     });
   });
 
+  describe('getDecryptedChannelSecret()', () => {
+    it('returns null when no channel secret is stored', async () => {
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelSecretEnc: null });
+      expect(await service.getDecryptedChannelSecret('live')).toBeNull();
+    });
+
+    it('decrypts the stored channel secret back to its raw value', async () => {
+      const raw = 'my-real-channel-secret';
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelSecretEnc: encrypt(raw, TEST_KEY) });
+      expect(await service.getDecryptedChannelSecret('live')).toBe(raw);
+    });
+
+    it('returns null instead of throwing when the secret cannot be decrypted — the webhook must answer 401, not 500', async () => {
+      const otherKey = 'c'.repeat(64);
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelSecretEnc: encrypt('s', otherKey) });
+      expect(await service.getDecryptedChannelSecret('live')).toBeNull();
+    });
+  });
+
   describe('updateSettings()', () => {
     it('throws NotFoundException when the mode row does not exist', async () => {
       repo.findOne.mockResolvedValue(null);
@@ -119,6 +147,21 @@ describe('NotificationSettingsService', () => {
       const patch = repo.update.mock.calls[0][1];
       expect(patch).not.toHaveProperty('lineChannelAccessTokenEnc');
       expect(patch.enabled).toBe(true);
+    });
+
+    it('encrypts a newly-provided channel secret before writing it', async () => {
+      repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live', lineChannelSecretEnc: null });
+      await service.updateSettings('live', { lineChannelSecret: 'new-real-secret' });
+      const patch = repo.update.mock.calls[0][1];
+      expect(patch.lineChannelSecretEnc).toBeDefined();
+      expect(patch.lineChannelSecretEnc).not.toContain('new-real-secret');
+      expect(patch).not.toHaveProperty('lineChannelSecret');
+    });
+
+    it('leaves the stored channel secret untouched when none is provided', async () => {
+      repo.findOne.mockResolvedValueOnce({ mode: 'live' }).mockResolvedValue({ mode: 'live' });
+      await service.updateSettings('live', { enabled: true });
+      expect(repo.update.mock.calls[0][1]).not.toHaveProperty('lineChannelSecretEnc');
     });
   });
 });

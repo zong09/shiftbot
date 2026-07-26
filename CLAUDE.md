@@ -142,6 +142,8 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 
 `migrationsRun: true` — migrations execute on every boot, in dev and production alike. Migration classes are listed **explicitly** in `src/app.module.ts` (not by glob) so they resolve identically under `nest start` and the compiled `dist` build; add each new class to that array or it will never run.
 
+Registered so far: `CreateNotificationSettings1785024000000`, `AddLineChannelSecret1785110400000` (adds `lineChannelSecretEnc` for webhook signature verification).
+
 Because the schema was originally created by `synchronize`, existing production tables may predate their migration. Write DDL idempotently (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) and reuse TypeORM's own generated constraint names, so a migration-created table is byte-identical to a synchronize-created one and later `synchronize` runs see no drift. Only `notification_settings` has a migration so far — the other tables remain synchronize-created and have no baseline migration yet.
 
 ### Cron schedule
@@ -164,7 +166,7 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 ### Dashboard API endpoints
 
 > [!IMPORTANT]
-> All `/api/*` endpoints except `/api/auth/login` require authentication. Set `Authorization: Bearer <JWT_TOKEN>` in request headers.
+> All `/api/*` endpoints except `/api/auth/login` and `/api/line/webhook/:mode` require authentication. Set `Authorization: Bearer <JWT_TOKEN>` in request headers.
 
 | Endpoint | Purpose |
 |---|---|
@@ -183,6 +185,19 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 | `GET /api/settings/notifications/:mode` | Per-mode LINE notification settings — token always returned masked (e.g. `8Ff2•••wQ8f`) |
 | `PUT /api/settings/notifications/:mode` | Update per-mode LINE notification settings; a provided token is encrypted before storage, omitted token leaves the stored one untouched |
 | `POST /api/settings/notifications/:mode/test` | Send a real LINE test push for that mode and record `lastSentAt` |
+| `POST /api/line/webhook/:mode` | Inbound LINE webhook — **public**, authenticated by `x-line-signature` HMAC instead of JWT |
+
+### LINE webhook (finding the group id)
+
+The LINE push target (`notification_settings.lineGroupId`) can only be learned from an inbound webhook event. `LineWebhookController` (`src/modules/notification/line-webhook.controller.ts`) verifies the signature, logs `source` for every event, and on `join` (bot invited to a group) replies with the id so it can be pasted into Settings → GROUP ID. It never writes the id itself — an auto-write would silently clobber a configured target.
+
+- **`:mode` is not vestigial** — it picks the `notification_settings` row whose channel secret verifies the signature and whose access token sends the reply. A webhook URL ending in `/live` while only the sandbox row has a secret 401s everything, including the console's Verify button.
+- The channel secret lives in `lineChannelSecretEnc`, encrypted with `TOKEN_ENCRYPTION_KEY` exactly like the access token. `getDecryptedChannelSecret()` deliberately returns `null` rather than throwing on an unreadable secret (unlike `getDecryptedToken()`), so the webhook answers 401 instead of 500 — a 500 only makes LINE retry a doomed request.
+- Signature = HMAC-SHA256 over the **raw** request bytes → base64. Hence `rawBody: true` in `main.ts`; never HMAC `JSON.stringify(body)`, whitespace/unicode differences break it.
+- The handler takes `@Body() body: any` on purpose — the global `ValidationPipe({ forbidNonWhitelisted: true })` would 400 LINE's payload if a DTO class were used. `line-webhook.rawbody.spec.ts` boots a real server to lock both of these down, since either failing is silent.
+- Returns 200 for `events: []` (the console's Verify button) and for a failed reply; 401 for a bad/missing signature or an unset secret.
+- `notification_settings.lineWebhookUrl` is stored, validated and editable in the dashboard but **no server code reads it** — the real webhook URL is configured in the LINE Developers Console as `https://<host>/api/line/webhook/<mode>`.
+- `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_TO` in `.env` are dead — LINE credentials come from the DB per mode. `NOTIFY_CHANNEL` is still read and must be `line` or `both` for pushes to fire.
 
 ## Key files
 

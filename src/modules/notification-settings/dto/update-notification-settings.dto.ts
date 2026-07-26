@@ -17,6 +17,10 @@ export class UpdateNotificationSettingsDto {
 
   @IsOptional()
   @IsString()
+  lineChannelSecret?: string;
+
+  @IsOptional()
+  @IsString()
   lineGroupId?: string;
 
   @IsOptional()

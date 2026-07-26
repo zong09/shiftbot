@@ -15,6 +15,9 @@ export class NotificationSettingsEntity {
   lineChannelAccessTokenEnc: string | null; // encrypted at rest — see src/common/crypto.util.ts
 
   @Column({ type: 'text', nullable: true })
+  lineChannelSecretEnc: string | null; // encrypted at rest — verifies inbound webhook signatures
+
+  @Column({ type: 'text', nullable: true })
   lineGroupId: string | null;
 
   @Column({ type: 'text', nullable: true })
