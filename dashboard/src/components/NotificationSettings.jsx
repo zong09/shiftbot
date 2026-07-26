@@ -65,11 +65,13 @@ export default function NotificationSettings({ mode, onModeChange }) {
   const [saving, setSaving]   = useState(false);
   const [testing, setTesting] = useState(false);
   const [msg, setMsg]         = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     setData(null);
     setMsg(null);
+    setLoadError(null);
     fetchNotificationSettings(mode).then(res => {
       if (cancelled) return;
       setData(res);
@@ -85,11 +87,25 @@ export default function NotificationSettings({ mode, onModeChange }) {
         notifyError: res.notifyError,
         notifyDailySummary: res.notifyDailySummary,
       });
+    }).catch(() => {
+      setLoadError('โหลดการตั้งค่าแจ้งเตือนไม่สำเร็จ');
     });
     return () => { cancelled = true; };
   }, [mode]);
 
-  if (!form) return null;
+  if (!form) {
+    if (loadError) {
+      return (
+        <section
+          className="bg-surface border border-border rounded-2xl px-[22px] py-[20px] mb-4 max-w-[920px] mx-auto"
+          style={{ boxShadow: CARD_SHADOW }}
+        >
+          <p className="text-[13px] text-bear m-0">การแจ้งเตือน · {mode} — {loadError}</p>
+        </section>
+      );
+    }
+    return null;
+  }
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 

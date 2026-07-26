@@ -70,6 +70,13 @@ describe('NotificationSettingsService', () => {
       expect(result.lineChannelAccessToken).toMatch(/^8Ff2•+8f$/);
       expect(JSON.stringify(result)).not.toContain(raw);
     });
+
+    it('returns null lineChannelAccessToken instead of throwing when stored ciphertext was encrypted under a different key (e.g. TOKEN_ENCRYPTION_KEY rotated)', async () => {
+      const otherKey = 'c'.repeat(64);
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelAccessTokenEnc: encrypt('some-token', otherKey) });
+      const result = await service.getMaskedSettings('live');
+      expect(result.lineChannelAccessToken).toBeNull();
+    });
   });
 
   describe('getDecryptedToken()', () => {
@@ -82,6 +89,12 @@ describe('NotificationSettingsService', () => {
       const raw = 'my-real-line-token';
       repo.findOne.mockResolvedValue({ mode: 'live', lineChannelAccessTokenEnc: encrypt(raw, TEST_KEY) });
       expect(await service.getDecryptedToken('live')).toBe(raw);
+    });
+
+    it('throws a clear, actionable error when the stored token cannot be decrypted with the current key', async () => {
+      const otherKey = 'c'.repeat(64);
+      repo.findOne.mockResolvedValue({ mode: 'live', lineChannelAccessTokenEnc: encrypt('some-token', otherKey) });
+      await expect(service.getDecryptedToken('live')).rejects.toThrow(/unreadable/);
     });
   });
 

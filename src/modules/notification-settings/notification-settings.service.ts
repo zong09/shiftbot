@@ -45,12 +45,15 @@ export class NotificationSettingsService {
 
   toMaskedDto(entity: NotificationSettingsEntity): MaskedNotificationSettings {
     const { lineChannelAccessTokenEnc, ...rest } = entity;
-    return {
-      ...rest,
-      lineChannelAccessToken: lineChannelAccessTokenEnc
-        ? maskToken(decrypt(lineChannelAccessTokenEnc, this.encryptionKey()))
-        : null,
-    };
+    let lineChannelAccessToken: string | null = null;
+    if (lineChannelAccessTokenEnc) {
+      try {
+        lineChannelAccessToken = maskToken(decrypt(lineChannelAccessTokenEnc, this.encryptionKey()));
+      } catch {
+        lineChannelAccessToken = null;
+      }
+    }
+    return { ...rest, lineChannelAccessToken };
   }
 
   async getMaskedSettings(mode: NotificationMode): Promise<MaskedNotificationSettings> {
@@ -62,7 +65,11 @@ export class NotificationSettingsService {
   async getDecryptedToken(mode: NotificationMode): Promise<string | null> {
     const row = await this.getSettings(mode);
     if (!row.lineChannelAccessTokenEnc) return null;
-    return decrypt(row.lineChannelAccessTokenEnc, this.encryptionKey());
+    try {
+      return decrypt(row.lineChannelAccessTokenEnc, this.encryptionKey());
+    } catch {
+      throw new Error(`[NotificationSettingsService] stored LINE token for mode '${mode}' is unreadable (TOKEN_ENCRYPTION_KEY likely rotated) — re-save the token in settings`);
+    }
   }
 
   async updateSettings(
