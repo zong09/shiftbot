@@ -328,7 +328,7 @@ export default function App() {
         )}
 
         <div className="text-center text-secondary/60 text-[11px] pt-5">
-          ระบบเชื่อมต่อ Testnet · กรุณาใช้ด้วยความระมัดระวัง
+          ระบบเชื่อมต่อ Testnet · กรุณาใช้ด้วยความระมัดระวัง · v{__APP_VERSION__}
         </div>
       </div>
     </div>
