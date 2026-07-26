@@ -198,7 +198,8 @@ The LINE push target (`notification_settings.lineGroupId`) can only be learned f
 - Signature = HMAC-SHA256 over the **raw** request bytes → base64. Hence `rawBody: true` in `main.ts`; never HMAC `JSON.stringify(body)`, whitespace/unicode differences break it.
 - The handler takes `@Body() body: any` on purpose — the global `ValidationPipe({ forbidNonWhitelisted: true })` would 400 LINE's payload if a DTO class were used. `line-webhook.rawbody.spec.ts` boots a real server to lock both of these down, since either failing is silent.
 - Returns 200 for `events: []` (the console's Verify button) and for a failed reply; 401 for a bad/missing signature or an unset secret.
-- `notification_settings.lineWebhookUrl` is stored, validated and editable in the dashboard but **no server code reads it** — the real webhook URL is configured in the LINE Developers Console as `https://<host>/api/line/webhook/<mode>`.
+- The dashboard's WEBHOOK URL field is **read-only** — `NotificationSettings.jsx` computes `${window.location.origin}/api/line/webhook/${mode}` and offers a copy button, so the value pasted into the LINE Developers Console can't drift from the route the bot actually serves. Correct because the bot serves the dashboard same-origin in production; from a Vite dev server it shows `localhost:5173`, which LINE can't verify.
+- `notification_settings.lineWebhookUrl` (column + DTO field) still exists but is now written by nobody and read by nobody — dead, but left in place; no migration drops it.
 - **No notification env vars exist any more.** `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TO`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `NOTIFY_CHANNEL` were all removed from `configuration.ts` and `.env.example`; don't reintroduce them. Every credential and switch lives in `notification_settings` per mode.
 
 ### Notification channels (LINE + Telegram, both per-mode DB config)
