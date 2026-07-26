@@ -11,6 +11,7 @@ import { TradeLogEntity } from './database/entities/trade-log.entity';
 import { TradingSettingsEntity } from './database/entities/trading-settings.entity';
 import { NotificationSettingsEntity } from './database/entities/notification-settings.entity';
 import { UserEntity } from './database/entities/user.entity';
+import { CreateNotificationSettings1785024000000 } from './database/migrations/1785024000000-CreateNotificationSettings';
 import { TradingSettingsModule } from './modules/trading-settings/trading-settings.module';
 import { NotificationSettingsModule } from './modules/notification-settings/notification-settings.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
@@ -37,6 +38,9 @@ import { AuthModule } from './modules/auth/auth.module';
         // Auto-sync schema in dev only — in production a schema drift must never
         // silently ALTER live trading tables; use migrations instead.
         const synchronize = !isProd;
+        // Migrations are listed explicitly (not by glob) so they resolve the same
+        // way in dev (ts) and in the compiled dist build.
+        const migrations = [CreateNotificationSettings1785024000000];
         // Verify the DB certificate unless explicitly disabled for hosts with self-signed certs.
         const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';
 
@@ -46,6 +50,8 @@ import { AuthModule } from './modules/auth/auth.module';
             url,
             entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, NotificationSettingsEntity, UserEntity],
             synchronize,
+            migrations,
+            migrationsRun: true,
             ssl: useSsl ? { rejectUnauthorized } : false,
             retryAttempts: 2,
           };
@@ -59,6 +65,8 @@ import { AuthModule } from './modules/auth/auth.module';
           database: config.get<string>('database.name'),
           entities: [PositionEntity, TradeLogEntity, TradingSettingsEntity, NotificationSettingsEntity, UserEntity],
           synchronize,
+          migrations,
+          migrationsRun: true,
           ssl: useSsl ? { rejectUnauthorized } : false,
           retryAttempts: 2,
         };
