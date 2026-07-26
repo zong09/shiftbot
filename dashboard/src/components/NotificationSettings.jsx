@@ -28,7 +28,6 @@ const CHANNELS = [
       ['notifyDailySummary', 'สรุปรายวัน',   'ยังไม่เปิดใช้งาน — ไม่มีตัวส่งสรุปรายวัน'],
     ],
     fields: [
-      { key: 'lineWebhookUrl',         label: 'WEBHOOK URL',          placeholder: 'https://api.line.me/v2/bot/message/push', full: true },
       { key: 'lineChannelAccessToken', label: 'CHANNEL ACCESS TOKEN', placeholder: 'วาง token ของ channel', secret: true },
       { key: 'lineChannelSecret',      label: 'CHANNEL SECRET',       placeholder: 'วาง channel secret (ใช้ verify webhook)', secret: true },
       { key: 'lineGroupId',            label: 'GROUP ID',             placeholder: 'Cxxxxxxxxxxxx' },
@@ -129,6 +128,49 @@ function ChannelCard({ channel, enabled, selected, onSelect, onToggle }) {
   );
 }
 
+// Our own webhook endpoint — the value the LINE console asks for. Computed from the current
+// origin because in production the bot serves this dashboard same-origin, so the origin the
+// browser is on is already the public host. Read-only: no server code reads a typed-in value.
+function WebhookUrl({ mode }) {
+  const [copied, setCopied] = useState(false);
+  const url = `${window.location.origin}/api/line/webhook/${mode}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // Insecure origin has no clipboard API — the field selects on focus as a fallback.
+    }
+  };
+
+  return (
+    <div className="mb-[14px]">
+      <span className="block text-[11px] font-semibold tracking-[0.05em] text-secondary mb-1.5">WEBHOOK URL</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          readOnly
+          value={url}
+          onFocus={e => e.target.select()}
+          className={`${FIELD_CLASS} min-w-0`}
+        />
+        <button
+          onClick={copy}
+          className="shrink-0 px-[16px] py-[10px] border border-border bg-surface text-primary rounded-[9px] text-[13px] font-semibold cursor-pointer transition-colors duration-150 hover:border-accent hover:text-accent"
+        >
+          {copied ? 'คัดลอกแล้ว' : 'คัดลอก'}
+        </button>
+      </div>
+      <span className="block text-[11px] text-secondary mt-1.5">
+        วาง URL นี้ใน LINE Developers Console → Messaging API → Webhook URL แล้วกด Verify
+        (ต้องเป็น host จริงแบบ https — ถ้าเปิดจาก localhost จะยัง verify ไม่ผ่าน)
+      </span>
+    </div>
+  );
+}
+
 function formatLastSent(iso) {
   if (!iso) return 'ยังไม่เคยส่ง';
   const d = new Date(iso);
@@ -189,9 +231,8 @@ export default function NotificationSettings({ mode }) {
     setSaving(true); setMsg(null);
     try {
       const payload = { ...form };
-      // An empty secret keeps the stored one; an empty URL would fail @IsUrl (which only
-      // skips null/undefined, not '').
-      for (const key of [...SECRET_KEYS, 'lineWebhookUrl']) {
+      // An empty secret keeps the stored one.
+      for (const key of SECRET_KEYS) {
         if (!payload[key]) delete payload[key];
       }
       const res = await updateNotificationSettings(mode, payload);
@@ -259,6 +300,8 @@ export default function NotificationSettings({ mode }) {
             </span>
           )}
         </div>
+
+        {channel.key === 'line' && <WebhookUrl mode={mode} />}
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-[14px]">
           {channel.fields.map(f => (
