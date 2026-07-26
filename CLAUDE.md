@@ -138,6 +138,12 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 - TypeORM `synchronize` auto-disables when `NODE_ENV=production` (dev only — never rely on it against a real DB).
 - Login is rate-limited: `ThrottlerModule` caps `/api/auth/login` at 5 requests/60s.
 
+### Migrations
+
+`migrationsRun: true` — migrations execute on every boot, in dev and production alike. Migration classes are listed **explicitly** in `src/app.module.ts` (not by glob) so they resolve identically under `nest start` and the compiled `dist` build; add each new class to that array or it will never run.
+
+Because the schema was originally created by `synchronize`, existing production tables may predate their migration. Write DDL idempotently (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) and reuse TypeORM's own generated constraint names, so a migration-created table is byte-identical to a synchronize-created one and later `synchronize` runs see no drift. Only `notification_settings` has a migration so far — the other tables remain synchronize-created and have no baseline migration yet.
+
 ### Cron schedule
 
 `StrategyService` creates **one dynamic cron job per (mode, symbol) pair** at startup using `SchedulerRegistry`, plus a fire-and-forget warm-up run of every pair immediately on boot (so `/api/status` has data before the first cron fire). Changing `timeframe` via `PUT /api/settings/:mode` automatically reschedules that pair's job — no restart required. Jobs fire at candle open and evaluate the last **closed** candle (see Confirm-on-close above).
@@ -189,6 +195,7 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 - `src/modules/market-data/market-data.service.ts` — exchange instances + WebSocket kline streaming
 - `src/modules/auth/` — JWT authentication (login, guard, admin-user seeding)
 - `src/database/entities/` — TypeORM entities (`position`, `trade-log`, `trading-settings`, `notification-settings`, `user`)
+- `src/database/migrations/` — TypeORM migrations, run at boot (see Migrations above)
 - `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt/token-encryption credentials)
 - `src/app.module.ts` — TypeORM/DATABASE_URL wiring, static dashboard serving, throttler
 - `dashboard/src/App.jsx` — main React app, auth state, data fetching
