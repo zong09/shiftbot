@@ -15,7 +15,7 @@ src/
     ├── indicators/                  ← CDC Action Zone V3 calculation
     ├── trading/                     ← open/close orders + SL/TP
     ├── trading-settings/            ← per-mode settings CRUD (PostgreSQL)
-    ├── notification/                ← Telegram + LINE Notify
+    ├── notification/                ← Telegram + LINE Messaging API
     ├── strategy/                    ← main trading loop + cron scheduler
     ├── auth/                        ← JWT authentication (login & api guard)
     └── dashboard/                   ← REST API for monitoring + settings (protected by JwtAuthGuard)
@@ -40,7 +40,7 @@ npm run install:all
 
 # 2. Configure environment
 cp .env.example .env
-# Fill in: BINANCE_API_KEY, BINANCE_DEMO_API_KEY, DB_*, TELEGRAM_BOT_TOKEN etc.
+# Fill in: BINANCE_API_KEY, BINANCE_DEMO_API_KEY, DB_* etc.
 
 # 3. Start PostgreSQL
 docker compose up -d
@@ -74,7 +74,6 @@ The `.env` file only requires:
 | `BINANCE_API_KEY` / `BINANCE_API_SECRET` | Live trading (mainnet) |
 | `BINANCE_DEMO_API_KEY` / `BINANCE_DEMO_API_SECRET` | Demo trading (`demo-fapi.binance.com`) |
 | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` | PostgreSQL |
-| `NOTIFY_CHANNEL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Notifications |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin dashboard credentials (defaults to `admin` / `admin1234`) |
 | `JWT_SECRET` / `JWT_EXPIRY` | JWT token secret and expiration duration (default secret, expiry `24h`) |
 | `PORT` | Bot API port (default 3000) |

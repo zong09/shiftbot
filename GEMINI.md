@@ -41,7 +41,7 @@ The project has two parts in the same folder:
         ↓ BUY/SELL/HOLD
 [TradingService]                     ← openLong / closeLong / checkSLTP
         ↓                              uses exchangeLive (live) or exchangeDemo (sandbox)
-[NotificationService]                ← Telegram / LINE Notify
+[NotificationService]                ← Telegram / LINE Messaging API
 ```
 
 ### Exchange instances (MarketDataService)

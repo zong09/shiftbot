@@ -53,15 +53,7 @@ export default () => ({
     name:     process.env.DB_NAME || process.env.PGDATABASE || 'shiftbot',
   },
 
-  notification: {
-    channel: process.env.NOTIFY_CHANNEL || 'telegram',
-    telegram: {
-      botToken: process.env.TELEGRAM_BOT_TOKEN,
-      chatId: process.env.TELEGRAM_CHAT_ID,
-    },
-    line: {
-      accessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-      to: process.env.LINE_TO,
-    },
-  },
+  // Notification credentials are not env-configured — LINE and Telegram are both stored
+  // per mode in notification_settings, with their secrets encrypted using
+  // security.tokenEncryptionKey. Edit them in the dashboard's Settings page.
 });

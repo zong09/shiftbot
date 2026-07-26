@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { BadRequestException } from '@nestjs/common';
 import { DashboardController } from './dashboard.controller';
 import { TradingService } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
@@ -92,9 +93,14 @@ function makeCdcService(): jest.Mocked<Partial<CdcActionZoneService>> {
 function makeNotificationSettingsService(): jest.Mocked<Partial<NotificationSettingsService>> {
   return {
     getMaskedSettings: jest.fn().mockResolvedValue({
-      mode: 'live', enabled: false, lineWebhookUrl: null, lineChannelAccessToken: null,
-      lineGroupId: null, lineUserId: null, notifyOpen: true, notifyClose: true,
-      notifyTpSl: true, notifyError: true, notifyDailySummary: false, lastSentAt: null,
+      mode: 'live', lineEnabled: false, lineWebhookUrl: null, lineChannelAccessToken: null,
+      lineChannelSecret: null, lineGroupId: null, lineUserId: null,
+      notifyOpen: true, notifyClose: true, notifyTpSl: true, notifyError: true,
+      notifyDailySummary: false, lastSentAt: null,
+      telegramEnabled: false, telegramBotToken: null, telegramChatId: null,
+      telegramMessageThreadId: null, telegramNotifyOpen: true, telegramNotifyClose: true,
+      telegramNotifyTpSl: true, telegramNotifyError: true, telegramNotifyDailySummary: false,
+      telegramLastSentAt: null,
     }),
     updateSettings: jest.fn().mockResolvedValue({}),
     markSent: jest.fn().mockResolvedValue({}),
@@ -103,7 +109,7 @@ function makeNotificationSettingsService(): jest.Mocked<Partial<NotificationSett
 
 function makeNotificationService(): jest.Mocked<Partial<NotificationService>> {
   return {
-    sendTest: jest.fn().mockResolvedValue(undefined),
+    sendTest: jest.fn().mockResolvedValue(true),
   } as any;
 }
 
@@ -362,17 +368,24 @@ describe('DashboardController', () => {
 
   describe('PUT /api/settings/notifications/:mode', () => {
     it('delegates to notificationSettingsService.updateSettings', async () => {
-      const body = { enabled: true, lineWebhookUrl: 'https://api.line.me/v2/bot/message/push' };
+      const body = { lineEnabled: true, telegramEnabled: true, lineWebhookUrl: 'https://api.line.me/v2/bot/message/push' };
       await controller.updateNotificationSettings('sandbox', body as any);
       expect(notificationSettingsSvc.updateSettings).toHaveBeenCalledWith('sandbox', body);
     });
   });
 
   describe('POST /api/settings/notifications/:mode/test', () => {
-    it('sends a test notification then marks it sent', async () => {
-      await controller.sendTestNotification('live');
-      expect(notificationSvc.sendTest).toHaveBeenCalledWith('live');
-      expect(notificationSettingsSvc.markSent).toHaveBeenCalledWith('live');
+    it('sends a test notification on the requested channel then marks that channel sent', async () => {
+      await controller.sendTestNotification('live', 'telegram');
+      expect(notificationSvc.sendTest).toHaveBeenCalledWith('live', 'telegram');
+      expect(notificationSettingsSvc.markSent).toHaveBeenCalledWith('live', 'telegram');
+    });
+
+    // Otherwise the dashboard's "last sent" line would claim a send that never happened.
+    it('400s and does NOT mark sent when the channel has no usable config', async () => {
+      (notificationSvc.sendTest as jest.Mock).mockResolvedValueOnce(false);
+      await expect(controller.sendTestNotification('live', 'telegram')).rejects.toThrow(BadRequestException);
+      expect(notificationSettingsSvc.markSent).not.toHaveBeenCalled();
     });
   });
 });

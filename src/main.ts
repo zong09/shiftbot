@@ -7,6 +7,9 @@ import { createWinstonLogger } from "./logger";
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: WinstonModule.createLogger(createWinstonLogger()),
+    // rawBody: LINE webhook signature ต้อง HMAC จาก raw bytes ที่ LINE ส่งมาจริง
+    // (JSON.stringify(body) ให้ผลต่างกันเมื่อ whitespace/unicode ไม่ตรง)
+    rawBody: true,
   });
   // Restrict CORS to the dashboard origin(s) when DASHBOARD_ORIGIN is set. In dev
   // stay permissive (the Vite proxy handles same-origin); in production fail closed

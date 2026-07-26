@@ -4,13 +4,13 @@ import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
-import { NotificationSettingsService, NotificationMode } from '../notification-settings/notification-settings.service';
+import { NotificationSettingsService, NotificationMode, NotificationChannel } from '../notification-settings/notification-settings.service';
 import { NotificationService } from '../notification/notification.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UpdateSettingsDto, SYMBOL_PATTERN, VALID_TIMEFRAMES } from './dto/update-settings.dto';
 import { AddPairDto } from './dto/add-pair.dto';
 import { UpdateNotificationSettingsDto } from '../notification-settings/dto/update-notification-settings.dto';
-import { ParseModePipe } from './mode.pipe';
+import { ParseModePipe, ParseChannelPipe } from './mode.pipe';
 
 @UseGuards(JwtAuthGuard)
 @Controller('api')
@@ -259,13 +259,13 @@ export class DashboardController {
     return updated;
   }
 
-  /** LINE notification settings for one mode — token always returned masked */
+  /** LINE + Telegram notification settings for one mode — secrets always returned masked */
   @Get('settings/notifications/:mode')
   getNotificationSettings(@Param('mode', ParseModePipe) mode: NotificationMode) {
     return this.notificationSettingsService.getMaskedSettings(mode);
   }
 
-  /** Update LINE notification settings for one mode */
+  /** Update notification settings for one mode (both channels in one payload) */
   @Put('settings/notifications/:mode')
   updateNotificationSettings(
     @Param('mode', ParseModePipe) mode: NotificationMode,
@@ -274,10 +274,22 @@ export class DashboardController {
     return this.notificationSettingsService.updateSettings(mode, body);
   }
 
-  /** Send a real LINE test push for one mode and record lastSentAt */
+  /**
+   * Send a real test push on one channel for one mode. `lastSentAt` is only stamped when a
+   * message actually went out — otherwise the dashboard's "last sent" line would lie about
+   * a channel that has no credentials.
+   */
   @Post('settings/notifications/:mode/test')
-  async sendTestNotification(@Param('mode', ParseModePipe) mode: NotificationMode) {
-    await this.notificationService.sendTest(mode);
-    return this.notificationSettingsService.markSent(mode);
+  async sendTestNotification(
+    @Param('mode', ParseModePipe) mode: NotificationMode,
+    @Query('channel', new DefaultValuePipe('line'), ParseChannelPipe) channel: NotificationChannel,
+  ) {
+    const sent = await this.notificationService.sendTest(mode, channel);
+    if (!sent) {
+      throw new BadRequestException(
+        `ยังไม่ได้ตั้งค่า ${channel === 'telegram' ? 'Telegram' : 'LINE'} ของโหมด ${mode} — ส่งข้อความทดสอบไม่ได้`,
+      );
+    }
+    return this.notificationSettingsService.markSent(mode, channel);
   }
 }
