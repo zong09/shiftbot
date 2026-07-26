@@ -53,7 +53,7 @@ The project has two parts in the same folder:
         ↓ BUY/SELL/HOLD
 [TradingService]                     ← openLong/closeLong, openShort/closeShort (both directions traded)
         ↓                              uses exchangeLive (live) or exchangeDemo (sandbox)
-[NotificationService]                ← Telegram (env-config) / LINE (per-mode DB config, see notification-settings)
+[NotificationService]                ← LINE + Telegram, both per-mode DB config (see notification-settings)
 ```
 
 The strategy is long **and** short: a BUY signal closes open shorts then opens long; a SELL signal closes open longs then opens short.
@@ -130,7 +130,7 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 ### Required env / boot-time validation
 
 - `JWT_SECRET` — boot throws if unset or < 32 chars (`openssl rand -hex 32`).
-- `TOKEN_ENCRYPTION_KEY` — boot throws if unset or not exactly 64 hex chars (`openssl rand -hex 32`). AES-256-GCM key encrypting the LINE channel access token stored per-mode in `notification_settings` (`src/common/crypto.util.ts`) — never reused for `JWT_SECRET`.
+- `TOKEN_ENCRYPTION_KEY` — boot throws if unset or not exactly 64 hex chars (`openssl rand -hex 32`). AES-256-GCM key encrypting every secret stored per-mode in `notification_settings` — LINE channel access token, LINE channel secret, Telegram bot token (`src/common/crypto.util.ts`) — never reused for `JWT_SECRET`.
 - `ADMIN_PASSWORD` — first-run admin seeding throws if unset, still `admin1234`, or < 8 chars.
 - `DATABASE_URL` (optional) — if set, takes priority over `DB_HOST`/`DB_USER`/etc.; SSL auto-enables in production or when the URL host looks like Railway/Supabase/Neon.
 - `DASHBOARD_ORIGIN` (optional, comma-separated) — CORS allowlist. In production an unset allowlist **fails closed** (no cross-origin requests) since the dashboard is served same-origin; in dev CORS is permissive by default.
@@ -142,9 +142,11 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 
 `migrationsRun: true` — migrations execute on every boot, in dev and production alike. Migration classes are listed **explicitly** in `src/app.module.ts` (not by glob) so they resolve identically under `nest start` and the compiled `dist` build; add each new class to that array or it will never run.
 
-Registered so far: `CreateNotificationSettings1785024000000`, `AddLineChannelSecret1785110400000` (adds `lineChannelSecretEnc` for webhook signature verification).
+Registered so far: `CreateNotificationSettings1785024000000`, `AddLineChannelSecret1785110400000` (adds `lineChannelSecretEnc` for webhook signature verification), `AddTelegramNotificationSettings1785196800000` (splits `enabled` into `lineEnabled`/`telegramEnabled` and adds the Telegram columns).
 
 Because the schema was originally created by `synchronize`, existing production tables may predate their migration. Write DDL idempotently (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`) and reuse TypeORM's own generated constraint names, so a migration-created table is byte-identical to a synchronize-created one and later `synchronize` runs see no drift. Only `notification_settings` has a migration so far — the other tables remain synchronize-created and have no baseline migration yet.
+
+**A migration that renames or drops a column can't rely on reading the old one in dev.** TypeORM runs `synchronize` *before* `migrationsRun`, so with synchronize on (`NODE_ENV !== 'production'`) the column is already gone by the time the migration's `UPDATE` executes. `AddTelegramNotificationSettings` copies `enabled` → `lineEnabled` behind an `information_schema` guard for exactly this reason; the copy only actually lands where synchronize is off.
 
 ### Cron schedule
 
@@ -182,9 +184,9 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 | `DELETE /api/settings/:mode/pairs?symbol=` | Remove a pair — refuses if positions are still open |
 | `POST /api/positions/:id/close` | Manually market-close a single position by id |
 | `GET /api/health` | Uptime check |
-| `GET /api/settings/notifications/:mode` | Per-mode LINE notification settings — token always returned masked (e.g. `8Ff2•••wQ8f`) |
-| `PUT /api/settings/notifications/:mode` | Update per-mode LINE notification settings; a provided token is encrypted before storage, omitted token leaves the stored one untouched |
-| `POST /api/settings/notifications/:mode/test` | Send a real LINE test push for that mode and record `lastSentAt` |
+| `GET /api/settings/notifications/:mode` | Per-mode LINE **and** Telegram notification settings — every secret returned masked (e.g. `8Ff2•••wQ8f`) |
+| `PUT /api/settings/notifications/:mode` | Update per-mode notification settings (both channels in one payload); a provided secret is encrypted before storage, an omitted one leaves the stored value untouched |
+| `POST /api/settings/notifications/:mode/test?channel=line\|telegram` | Send a real test push on one channel; 400s (and does **not** stamp last-sent) when that channel has no usable config |
 | `POST /api/line/webhook/:mode` | Inbound LINE webhook — **public**, authenticated by `x-line-signature` HMAC instead of JWT |
 
 ### LINE webhook (finding the group id)
@@ -197,7 +199,18 @@ The LINE push target (`notification_settings.lineGroupId`) can only be learned f
 - The handler takes `@Body() body: any` on purpose — the global `ValidationPipe({ forbidNonWhitelisted: true })` would 400 LINE's payload if a DTO class were used. `line-webhook.rawbody.spec.ts` boots a real server to lock both of these down, since either failing is silent.
 - Returns 200 for `events: []` (the console's Verify button) and for a failed reply; 401 for a bad/missing signature or an unset secret.
 - `notification_settings.lineWebhookUrl` is stored, validated and editable in the dashboard but **no server code reads it** — the real webhook URL is configured in the LINE Developers Console as `https://<host>/api/line/webhook/<mode>`.
-- `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_TO` in `.env` are dead — LINE credentials come from the DB per mode. `NOTIFY_CHANNEL` is still read and must be `line` or `both` for pushes to fire.
+- **No notification env vars exist any more.** `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_TO`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `NOTIFY_CHANNEL` were all removed from `configuration.ts` and `.env.example`; don't reintroduce them. Every credential and switch lives in `notification_settings` per mode.
+
+### Notification channels (LINE + Telegram, both per-mode DB config)
+
+`notification_settings` holds a **complete, independent config per channel per mode**: `lineEnabled` / `telegramEnabled`, the credentials, and a full set of five event flags each — LINE's are unprefixed (`notifyOpen`…), Telegram's are prefixed (`telegramNotifyOpen`…). The unprefixed names were kept so existing rows needed no data migration; the asymmetry with `lineEnabled` is deliberate, not an oversight.
+
+- `NotificationService.send()` fetches the row **once** and calls both channel senders, each inside its own `try/catch`. A channel that is off, unconfigured, or failing never suppresses the other — that was the old `NOTIFY_CHANNEL` bug (an empty env var defaulted to `'telegram'` and silently made `sendLine` unreachable, so *no* notification fired at all).
+- The internal `eventFlag` is a **logical key** (`'open' | 'close' | 'tpsl' | 'error' | null`) resolved per channel through the `EVENT_COLUMN` map — never a column name, since the two channels use different columns for the same event.
+- `telegramBotTokenEnc` is encrypted with `TOKEN_ENCRYPTION_KEY` exactly like the LINE token, and `getDecryptedTelegramToken()` mirrors `getDecryptedToken()` (throws on an unreadable value; the caller's `try/catch` degrades it to a logged error).
+- `sendTest(mode, channel)` **returns a boolean** and deliberately ignores the channel's enable flag — the dashboard panel stays editable while a channel is off, so the button must work there. The controller only calls `markSent` when it returned `true`, otherwise the "last sent" line would claim a send that never happened.
+- `telegramMessageThreadId` is optional and only added to the payload when set (Telegram rejects a null `message_thread_id`). It targets a topic inside a forum-style group.
+- `notifyDailySummary` / `telegramNotifyDailySummary` are stored and shown in the UI but **have no sender** — there is no daily-summary cron. The checkbox descriptions say so.
 
 ## Key files
 
@@ -205,7 +218,7 @@ The LINE push target (`notification_settings.lineGroupId`) can only be learned f
 - `src/modules/strategy/strategy.service.ts` — trading loop, cron scheduling, per-pair signal state
 - `src/modules/trading/trading.service.ts` — order execution, protective orders, position sync (long + short)
 - `src/modules/trading-settings/trading-settings.service.ts` — per-(mode, symbol) settings CRUD
-- `src/modules/notification-settings/notification-settings.service.ts` — per-mode LINE settings CRUD, token encrypt/decrypt/mask
+- `src/modules/notification-settings/notification-settings.service.ts` — per-mode LINE + Telegram settings CRUD, secret encrypt/decrypt/mask
 - `src/common/crypto.util.ts` — AES-256-GCM encrypt/decrypt for the LINE access token at rest
 - `src/modules/market-data/market-data.service.ts` — exchange instances + WebSocket kline streaming
 - `src/modules/auth/` — JWT authentication (login, guard, admin-user seeding)
@@ -216,4 +229,4 @@ The LINE push target (`notification_settings.lineGroupId`) can only be learned f
 - `dashboard/src/App.jsx` — main React app, auth state, data fetching
 - `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
 - `dashboard/src/components/Settings.jsx` — per-pair settings form
-- `dashboard/src/components/NotificationSettings.jsx` — per-mode LINE notification settings form
+- `dashboard/src/components/NotificationSettings.jsx` — per-mode notification form; a `CHANNELS` table drives the channel cards, fields and event rows, so adding a third provider means adding one entry there plus the DB columns

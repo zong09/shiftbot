@@ -13,6 +13,7 @@ import { NotificationSettingsEntity } from './database/entities/notification-set
 import { UserEntity } from './database/entities/user.entity';
 import { CreateNotificationSettings1785024000000 } from './database/migrations/1785024000000-CreateNotificationSettings';
 import { AddLineChannelSecret1785110400000 } from './database/migrations/1785110400000-AddLineChannelSecret';
+import { AddTelegramNotificationSettings1785196800000 } from './database/migrations/1785196800000-AddTelegramNotificationSettings';
 import { TradingSettingsModule } from './modules/trading-settings/trading-settings.module';
 import { NotificationSettingsModule } from './modules/notification-settings/notification-settings.module';
 import { MarketDataModule } from './modules/market-data/market-data.module';
@@ -44,6 +45,7 @@ import { AuthModule } from './modules/auth/auth.module';
         const migrations = [
           CreateNotificationSettings1785024000000,
           AddLineChannelSecret1785110400000,
+          AddTelegramNotificationSettings1785196800000,
         ];
         // Verify the DB certificate unless explicitly disabled for hosts with self-signed certs.
         const rejectUnauthorized = process.env.DB_SSL_REJECT_UNAUTHORIZED !== 'false';

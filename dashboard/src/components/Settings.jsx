@@ -278,7 +278,7 @@ function AddPairRow({ mode, onAdd }) {
   );
 }
 
-export default function Settings({ settings, activeMode, onModeChange, onSave, onAddPair, onRemovePair }) {
+export default function Settings({ settings, activeMode, onSave, onAddPair, onRemovePair }) {
   // The design has no mode switch in this card — the header segmented control owns it
   const tab = activeMode ?? 'live';
 
@@ -289,7 +289,7 @@ export default function Settings({ settings, activeMode, onModeChange, onSave, o
     <div className="animate-sbfade">
       <Appearance />
 
-      <NotificationSettings mode={tab} onModeChange={onModeChange} />
+      <NotificationSettings mode={tab} />
 
       <Section>
         <h2 className="text-[18px] font-semibold m-0 mb-1">Trading Settings</h2>

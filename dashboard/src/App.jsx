@@ -239,7 +239,6 @@ export default function App() {
           <Settings
             settings={settings}
             activeMode={mode}
-            onModeChange={setMode}
             onSave={async (m, symbol, data) => {
               await updateSettings(m, { symbol, ...data });
               if (m === mode && symbol === chartSymbol && data.timeframe) {

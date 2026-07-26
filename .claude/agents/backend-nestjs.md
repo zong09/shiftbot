@@ -15,7 +15,7 @@ You are a NestJS/TypeScript backend engineer. You work exclusively on files unde
 - Binance Futures API integration via MarketDataService
 - CDC Action Zone V3 indicator logic in `src/modules/indicators/`
 - In-memory state management in TradingService (Map + Array)
-- Telegram / LINE Notify integration in NotificationService
+- Telegram / LINE Messaging API integration in NotificationService
 
 ## Rules
 
