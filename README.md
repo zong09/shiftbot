@@ -44,8 +44,9 @@ npm run install:all
 
 # 2. Configure environment
 cp .env.example .env
-# Fill in: BINANCE_API_KEY, BINANCE_DEMO_API_KEY, DB_*, and the three
-# secrets the bot refuses to boot without (see Configuration below)
+# Fill in: BINANCE_API_KEY, BINANCE_DEMO_API_KEY, DB_*, JWT_SECRET and
+# TOKEN_ENCRYPTION_KEY (the bot refuses to boot without the last two),
+# plus ADMIN_PASSWORD before the first run — see Configuration below
 
 # 3. Start PostgreSQL
 docker compose up -d
@@ -154,8 +155,10 @@ BOT TOKEN from [@BotFather](https://t.me/BotFather), CHAT ID of the destination 
 | 7 | Strong Bear (w) | Red | close < EMA12 < EMA26, EMA12 rising |
 | 8 | Strong Bear | Dark Red | close < EMA12 < EMA26, both falling |
 
-**BUY signal**: zone 5–8 → 1–4  
-**SELL signal**: zone 1–4 → 5–8
+**BUY signal**: zone 5–8 → 1–4 — closes any open short, then opens a long  
+**SELL signal**: zone 1–4 → 5–8 — closes any open long, then opens a short
+
+The strategy trades **both directions**; SL/TP are placed as native reduceOnly orders on Binance, so protection still triggers while the bot is down.
 
 Signals are confirmed on candle close: the strategy loop drops the still-forming candle and evaluates the zone from the last **closed** candle only.
 
