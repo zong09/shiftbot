@@ -139,10 +139,18 @@ function PairForm({ pair, mode, onSave, onRemove }) {
   };
 
   const handleSave = async () => {
-    const numFields = ['leverage', 'orderSizeUsdt', 'maxPositions', 'stopLossPct', 'takeProfitPct', 'emaFast', 'emaSlow'];
+    const numFields = ['leverage', 'orderSizeUsdt', 'maxPositions', 'emaFast', 'emaSlow'];
     for (const k of numFields) {
       if (!Number.isFinite(form[k]) || form[k] <= 0) {
         setMsg({ type: 'err', text: `${k} ต้องเป็นตัวเลขมากกว่า 0` });
+        return;
+      }
+    }
+    // SL/TP ยอมรับ 0 = ปิดขานั้น (ไม่วาง protective order บน exchange) — ค่าว่างเป็น ''
+    // จึงตกที่ Number.isFinite แทนที่จะกลายเป็น 0 แบบเงียบๆ
+    for (const k of ['stopLossPct', 'takeProfitPct']) {
+      if (!Number.isFinite(form[k]) || form[k] < 0) {
+        setMsg({ type: 'err', text: `${k} ต้องเป็น 0 (ปิด) หรือมากกว่า` });
         return;
       }
     }
@@ -150,6 +158,9 @@ function PairForm({ pair, mode, onSave, onRemove }) {
       setMsg({ type: 'err', text: 'emaFast ต้องน้อยกว่า emaSlow' });
       return;
     }
+    if (form.stopLossPct === 0 && !window.confirm(
+      `ปิด Stop Loss ของ ${pair.symbol.replace(':USDT', '')}? ไม้ที่เปิดใหม่จะไม่มี stop บน exchange เลย ออกได้ด้วย CDC signal เท่านั้น`
+    )) return;
     setSaving(true); setMsg(null);
     try {
       await onSave(mode, pair.symbol, form);
@@ -208,6 +219,15 @@ function PairForm({ pair, mode, onSave, onRemove }) {
             <label className="block">
               <span className="block text-[11px] font-semibold text-secondary mb-1.5">Max Positions</span>
               <input type="number" min={1} max={1} className={`${FIELD_CLASS} font-mono`} value={form.maxPositions} onChange={e => set('maxPositions', Number(e.target.value))} />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-secondary mb-1.5">Stop Loss (%) · 0 = ปิด</span>
+              {/* ช่องว่างต้องคงเป็น '' ไม่ใช่ Number('') = 0 — ไม่งั้นล้างช่องแล้วเซฟ = ปิด SL โดยไม่ตั้งใจ */}
+              <input type="number" min={0} max={50} step={0.1} className={`${FIELD_CLASS} font-mono`} value={form.stopLossPct} onChange={e => set('stopLossPct', e.target.value === '' ? '' : Number(e.target.value))} />
+            </label>
+            <label className="block">
+              <span className="block text-[11px] font-semibold text-secondary mb-1.5">Take Profit (%) · 0 = ปิด</span>
+              <input type="number" min={0} max={50} step={0.1} className={`${FIELD_CLASS} font-mono`} value={form.takeProfitPct} onChange={e => set('takeProfitPct', e.target.value === '' ? '' : Number(e.target.value))} />
             </label>
             <label className="block">
               <span className="block text-[11px] font-semibold text-secondary mb-1.5">EMA Fast</span>

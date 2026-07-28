@@ -106,12 +106,14 @@ describe('TradingService', () => {
   let tradeLogRepo: ReturnType<typeof makeTradeLogRepo>;
   let exchange: ReturnType<typeof makeFakeExchange>;
   let notificationService: ReturnType<typeof makeNotificationService>;
+  let settingsService: ReturnType<typeof makeSettingsService>;
 
   beforeEach(async () => {
     positionRepo = makePositionRepo();
     tradeLogRepo = makeTradeLogRepo();
     exchange     = makeFakeExchange();
     notificationService = makeNotificationService();
+    settingsService     = makeSettingsService();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -119,7 +121,7 @@ describe('TradingService', () => {
         { provide: getRepositoryToken(PositionEntity),  useValue: positionRepo },
         { provide: getRepositoryToken(TradeLogEntity),  useValue: tradeLogRepo },
         { provide: MarketDataService,                    useValue: makeMarketDataService(exchange) },
-        { provide: TradingSettingsService,               useValue: makeSettingsService() },
+        { provide: TradingSettingsService,               useValue: settingsService },
         { provide: NotificationService,                  useValue: notificationService },
       ],
     }).compile();
@@ -672,6 +674,97 @@ describe('TradingService', () => {
       positionRepo.find.mockResolvedValue([shortPos]);
       await service.checkSLTP(50_500, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT');
       expect(positionRepo.update).not.toHaveBeenCalled();
+    });
+
+    // 0 = leg switched off. Unguarded, `price >= 0` is trivially true and every
+    // short would instant-close on its SL (and every long on its TP).
+    it('does not trigger on a leg switched off (price 0) for a long', async () => {
+      positionRepo.find.mockResolvedValue([makeOpenPosition({ stopLoss: 0, takeProfit: 0 })]);
+      await service.checkSLTP(50_500, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
+      expect(positionRepo.update).not.toHaveBeenCalled();
+    });
+
+    it('does not trigger on a leg switched off (price 0) for a short', async () => {
+      positionRepo.find.mockResolvedValue([makeOpenPosition({ side: 'short', stopLoss: 0, takeProfit: 0 })]);
+      await service.checkSLTP(50_500, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT');
+      expect(positionRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── SL/TP switched off via stopLossPct / takeProfitPct = 0 ────────────────
+
+  describe('protective legs disabled by pct = 0', () => {
+    beforeEach(() => {
+      positionRepo.count.mockResolvedValue(0);
+    });
+
+    // params object is the 6th arg of createOrder(symbol, type, side, qty, price, params)
+    const paramsOf = (call: number) => exchange.createOrder.mock.calls[call][5];
+
+    it('skips the SL order and stores stopLoss 0 when stopLossPct is 0', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, stopLossPct: 0 } as any);
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+
+      expect(exchange.createOrder).toHaveBeenCalledTimes(1);
+      expect(paramsOf(0)).toHaveProperty('takeProfitPrice');
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.stopLoss).toBe(0);
+      expect(savedPos.slOrderId).toBeNull();
+      expect(savedPos.tpOrderId).toBe('protective-1');
+    });
+
+    it('skips the TP order and stores takeProfit 0 when takeProfitPct is 0', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, takeProfitPct: 0 } as any);
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+
+      expect(exchange.createOrder).toHaveBeenCalledTimes(1);
+      expect(paramsOf(0)).toHaveProperty('stopLossPrice');
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.takeProfit).toBe(0);
+      expect(savedPos.tpOrderId).toBeNull();
+      expect(savedPos.slOrderId).toBe('protective-1');
+    });
+
+    it('places no protective order at all when both pcts are 0', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, stopLossPct: 0, takeProfitPct: 0 } as any);
+
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+
+      expect(result).not.toBeNull();
+      expect(exchange.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('does not alert about a leg that was deliberately switched off', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, stopLossPct: 0 } as any);
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+      expect(notificationService.sendError).not.toHaveBeenCalled();
+    });
+
+    it('still alerts when an enabled leg fails while the other is switched off', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, takeProfitPct: 0 } as any);
+      jest.spyOn(service as any, 'sleep').mockResolvedValue(undefined);
+      exchange.createOrder.mockRejectedValue(new Error('blip'));
+
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'live', 'BTC/USDT:USDT');
+
+      expect(notificationService.sendError).toHaveBeenCalledTimes(1);
+      const msg = (notificationService.sendError as jest.Mock).mock.calls[0][0];
+      expect(msg).toMatch(/SL/);
+      expect(msg).not.toMatch(/TP/);
+    });
+
+    it('skips the SL leg for a short too', async () => {
+      settingsService.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, stopLossPct: 0 } as any);
+
+      await service.openShort(50_000, CDCZone.STRONG_BEAR, 'live', 'BTC/USDT:USDT');
+
+      expect(exchange.createOrder).toHaveBeenCalledTimes(1);
+      expect(paramsOf(0)).toHaveProperty('takeProfitPrice');
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.stopLoss).toBe(0);
+      expect(savedPos.slOrderId).toBeNull();
     });
   });
 });

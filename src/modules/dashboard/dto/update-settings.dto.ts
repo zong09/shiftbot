@@ -48,14 +48,16 @@ export class UpdateSettingsDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0.1)
+  // 0 = ปิด SL — ไม่วาง STOP_MARKET บน exchange เลย (ไม่มี fallback ฝั่ง bot)
+  @Min(0)
   @Max(50)
   stopLossPct?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0.1)
+  // 0 = ปิด TP — ออกด้วย CDC signal เท่านั้น
+  @Min(0)
   @Max(50)
   takeProfitPct?: number;
 

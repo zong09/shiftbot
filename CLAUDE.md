@@ -91,8 +91,8 @@ If `BINANCE_API_KEY` is absent/placeholder, live mode is disabled entirely (`isL
 | leverage | 5 |
 | orderSizeUsdt | 100 |
 | maxPositions | 1 (per side — long and short each get their own count) |
-| stopLossPct | 2.0 |
-| takeProfitPct | 4.0 |
+| stopLossPct | 2.0 (**0 = SL off** — no `STOP_MARKET` placed at all) |
+| takeProfitPct | 4.0 (**0 = TP off**) |
 | emaFast | 12 |
 | emaSlow | 26 |
 | status | `on` (`on` \| `pause` \| `off`) |
@@ -118,6 +118,8 @@ Zones 1–4 = bullish, Zones 5–8 = bearish.
 **Confirm-on-close**: `StrategyService.runForPair()` filters out candles whose close time hasn't passed (`timestamp + TIMEFRAME_MS > now`) before calling `calculate()` — signals are evaluated on closed candles only. The chart (`calculateHistory`) still receives the live candle. After a restart, `lastZone` is unknown; it's reconstructed from the second-to-last candle so a zone transition spanning the restart still fires instead of being swallowed as the first HOLD.
 
 **SL/TP = native exchange orders only**: on entry, `TradingService` places reduceOnly `STOP_MARKET` + `TAKE_PROFIT_MARKET` orders on Binance (ids stored as `slOrderId`/`tpOrderId` on the position) so protection triggers even while the bot is down. Every close path (signal, manual, sync) cancels the sibling orders first, and a stale-order sweep runs before every new entry (a failed cancel from an earlier close can otherwise leave a stray reduceOnly order that later market-closes the *next* position). `checkSLTP()` still exists on `TradingService` but its call site in `StrategyService.runForPair()` is commented out — the CDC signal is the only exit path now; don't assume it runs. When a position closes on-exchange, `syncPositions` records realized PnL from the Binance income endpoint (mark-price fallback, never hard-coded 0).
+
+**Each leg is switchable off with `pct = 0`**, per (mode, symbol): `stopLossPct: 0` places no `STOP_MARKET`, `takeProfitPct: 0` places no `TAKE_PROFIT_MARKET`. There is deliberately **no software fallback** — a position opened with SL off has no stop anywhere and exits only on a CDC zone flip. `0` is the single sentinel for "off" everywhere: it is what `positions.stopLoss`/`takeProfit` store (both are `float8` **NOT NULL** on a synchronize-created table with no baseline migration, so `null` would need a migration), what `placeProtectiveOrders` checks before placing a leg, and what suppresses the partial-failure alert (a leg that is off is not "missing", so alerting on it would cry wolf on every entry). Consequences of the sentinel: `checkSLTP()` must keep its `> 0` guards or `price >= 0` is trivially true and every short instant-closes on SL (every long on TP), and `sendOpenPosition` prints `ปิด` rather than a nonsensical `0.00`.
 
 Methods accept optional `emaFastOverride` / `emaSlowOverride` — StrategyService passes per-(mode, symbol) values from DB.
 
