@@ -64,8 +64,9 @@ export class NotificationService {
       `Symbol: ${position.symbol}\n` +
       `Entry: ${position.entryPrice.toFixed(2)} USDT\n` +
       `Qty: ${position.quantity}\n` +
-      `Stop Loss: ${position.stopLoss.toFixed(2)}\n` +
-      `Take Profit: ${position.takeProfit.toFixed(2)}\n` +
+      // 0 = ปิดจาก settings — แสดง "ปิด" แทน "0.00" ที่อ่านเหมือน SL ที่ราคา 0
+      `Stop Loss: ${position.stopLoss > 0 ? position.stopLoss.toFixed(2) : 'ปิด'}\n` +
+      `Take Profit: ${position.takeProfit > 0 ? position.takeProfit.toFixed(2) : 'ปิด'}\n` +
       `Time: ${new Date().toLocaleString('th-TH')}`;
 
     await this.send(msg, mode, 'open');

@@ -146,17 +146,25 @@ export class TradingService implements OnApplicationBootstrap {
     );
   }
 
-  /**
-   * Place reduceOnly STOP_MARKET + TAKE_PROFIT_MARKET orders on the exchange so
-   * SL/TP trigger even while the bot is down. Failures are logged but do not
-   * roll back the entry — the position simply has no exchange-side protection.
-   */
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  /** Log/notify format for an SL/TP price, where 0 means the leg is switched off. */
+  private static fmtProtective(price: number): string {
+    return price > 0 ? price.toFixed(2) : 'OFF';
+  }
+
   private static readonly PROTECTIVE_RETRY_MS = 2000;
 
+  /**
+   * Place reduceOnly STOP_MARKET + TAKE_PROFIT_MARKET orders on the exchange so
+   * SL/TP trigger even while the bot is down. Failures are logged but do not
+   * roll back the entry — the position simply has no exchange-side protection.
+   *
+   * A stopLoss/takeProfit of 0 means that leg is switched off in settings
+   * (stopLossPct/takeProfitPct = 0) — no order is placed and no alert fires.
+   */
   private async placeProtectiveOrders(
     exchange: Exchange,
     symbol: string,
@@ -185,13 +193,21 @@ export class TradingService implements OnApplicationBootstrap {
       return null;
     };
 
-    const slOrderId = await place('SL', { stopLossPrice: exchange.priceToPrecision(symbol, stopLoss) });
-    const tpOrderId = await place('TP', { takeProfitPrice: exchange.priceToPrecision(symbol, takeProfit) });
+    const slOrderId = stopLoss > 0
+      ? await place('SL', { stopLossPrice: exchange.priceToPrecision(symbol, stopLoss) })
+      : null;
+    const tpOrderId = takeProfit > 0
+      ? await place('TP', { takeProfitPrice: exchange.priceToPrecision(symbol, takeProfit) })
+      : null;
 
     // A leveraged position with one-sided (or no) protection must not sit silently —
-    // alert the operator to intervene rather than only logging.
-    if (!slOrderId || !tpOrderId) {
-      const missing = [!slOrderId && 'SL', !tpOrderId && 'TP'].filter(Boolean).join(' + ');
+    // alert the operator to intervene rather than only logging. Legs switched off in
+    // settings are not "missing" — alerting on them would cry wolf on every entry.
+    const missing = [
+      stopLoss > 0 && !slOrderId && 'SL',
+      takeProfit > 0 && !tpOrderId && 'TP',
+    ].filter(Boolean).join(' + ');
+    if (missing) {
       await this.notificationService.sendError(
         `${symbol}: วาง protective order ${missing} ไม่สำเร็จหลัง retry — position อาจไม่มี ${missing} บน exchange`,
         mode,
@@ -325,8 +341,9 @@ export class TradingService implements OnApplicationBootstrap {
       entryPrice = order.average ?? currentPrice;
       orderId    = order.id;
 
-      const stopLoss   = entryPrice * (1 - s.stopLossPct / 100);
-      const takeProfit = entryPrice * (1 + s.takeProfitPct / 100);
+      // pct 0 = ปิดขานั้นจาก settings — เก็บ 0 ไว้เป็น sentinel ใน position row
+      const stopLoss   = s.stopLossPct   > 0 ? entryPrice * (1 - s.stopLossPct / 100)   : 0;
+      const takeProfit = s.takeProfitPct > 0 ? entryPrice * (1 + s.takeProfitPct / 100) : 0;
 
       const { slOrderId, tpOrderId } = await this.placeProtectiveOrders(
         exchange, symbol, 'long', quantity, stopLoss, takeProfit, mode,
@@ -361,7 +378,7 @@ export class TradingService implements OnApplicationBootstrap {
       );
 
       this.logger.log(
-        `[${mode}][${symbol}] OPEN LONG | Price=${entryPrice} | Qty=${quantity} | SL=${stopLoss.toFixed(2)} | TP=${takeProfit.toFixed(2)}`,
+        `[${mode}][${symbol}] OPEN LONG | Price=${entryPrice} | Qty=${quantity} | SL=${TradingService.fmtProtective(stopLoss)} | TP=${TradingService.fmtProtective(takeProfit)}`,
       );
 
       return saved as unknown as Position;
@@ -484,8 +501,9 @@ export class TradingService implements OnApplicationBootstrap {
       entryPrice = order.average ?? currentPrice;
       orderId    = order.id;
 
-      const stopLoss   = entryPrice * (1 + s.stopLossPct / 100);
-      const takeProfit = entryPrice * (1 - s.takeProfitPct / 100);
+      // pct 0 = ปิดขานั้นจาก settings — เก็บ 0 ไว้เป็น sentinel ใน position row
+      const stopLoss   = s.stopLossPct   > 0 ? entryPrice * (1 + s.stopLossPct / 100)   : 0;
+      const takeProfit = s.takeProfitPct > 0 ? entryPrice * (1 - s.takeProfitPct / 100) : 0;
 
       const { slOrderId, tpOrderId } = await this.placeProtectiveOrders(
         exchange, symbol, 'short', quantity, stopLoss, takeProfit, mode,
@@ -520,7 +538,7 @@ export class TradingService implements OnApplicationBootstrap {
       );
 
       this.logger.log(
-        `[${mode}][${symbol}] OPEN SHORT | Price=${entryPrice} | Qty=${quantity} | SL=${stopLoss.toFixed(2)} | TP=${takeProfit.toFixed(2)}`,
+        `[${mode}][${symbol}] OPEN SHORT | Price=${entryPrice} | Qty=${quantity} | SL=${TradingService.fmtProtective(stopLoss)} | TP=${TradingService.fmtProtective(takeProfit)}`,
       );
 
       return saved as unknown as Position;
@@ -767,19 +785,21 @@ export class TradingService implements OnApplicationBootstrap {
   async checkSLTP(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<void> {
     const positions = await this.getOpenPositions(mode, symbol);
     for (const position of positions) {
+      // stopLoss/takeProfit of 0 = leg switched off in settings. Without this guard the
+      // comparisons below are trivially true (price >= 0), instant-closing every position.
       if (position.side === 'long') {
-        if (currentPrice <= position.stopLoss) {
+        if (position.stopLoss > 0 && currentPrice <= position.stopLoss) {
           this.logger.warn(`[${mode}][${symbol}] Stop Loss triggered! Price=${currentPrice} SL=${position.stopLoss}`);
           await this.closeLong(position, currentPrice, zone, 'SL', mode);
-        } else if (currentPrice >= position.takeProfit) {
+        } else if (position.takeProfit > 0 && currentPrice >= position.takeProfit) {
           this.logger.log(`[${mode}][${symbol}] Take Profit triggered! Price=${currentPrice} TP=${position.takeProfit}`);
           await this.closeLong(position, currentPrice, zone, 'TP', mode);
         }
       } else if (position.side === 'short') {
-        if (currentPrice >= position.stopLoss) {
+        if (position.stopLoss > 0 && currentPrice >= position.stopLoss) {
           this.logger.warn(`[${mode}][${symbol}] Stop Loss triggered (Short)! Price=${currentPrice} SL=${position.stopLoss}`);
           await this.closeShort(position, currentPrice, zone, 'SL', mode);
-        } else if (currentPrice <= position.takeProfit) {
+        } else if (position.takeProfit > 0 && currentPrice <= position.takeProfit) {
           this.logger.log(`[${mode}][${symbol}] Take Profit triggered (Short)! Price=${currentPrice} TP=${position.takeProfit}`);
           await this.closeShort(position, currentPrice, zone, 'TP', mode);
         }
