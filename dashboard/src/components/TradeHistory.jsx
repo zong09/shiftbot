@@ -18,6 +18,30 @@ const ACTION_LABEL = {
   SYNC_CLOSE:  { label: 'Sync Close',  className: 'text-secondary' },
 };
 
+const NAV_CLASS =
+  'h-[30px] px-3 rounded-lg text-[12px] font-semibold border border-border bg-surface text-secondary ' +
+  'transition-colors duration-[120ms] cursor-pointer hover:bg-surface-alt disabled:opacity-40 disabled:cursor-not-allowed';
+
+const pageClass = (active) =>
+  `min-w-[30px] h-[30px] px-2 rounded-lg text-[12px] font-semibold tabular-nums border cursor-pointer transition-colors duration-[120ms] ${
+    active ? 'bg-primary text-surface border-transparent' : 'bg-surface text-secondary border-border hover:bg-surface-alt'
+  }`;
+
+// 5-page window around the current page, with first/last anchors and … truncation (design `pageItems`).
+function pageWindow(current, pageCount, span = 5) {
+  const items = [];
+  let start = Math.max(1, current - 2);
+  const end = Math.min(pageCount, start + span - 1);
+  start = Math.max(1, end - span + 1);
+
+  if (start > 1) items.push({ key: 'first', n: 1 });
+  if (start > 2) items.push({ key: 'gap-lo', gap: true });
+  for (let n = start; n <= end; n++) items.push({ key: `p${n}`, n });
+  if (end < pageCount - 1) items.push({ key: 'gap-hi', gap: true });
+  if (end < pageCount) items.push({ key: 'last', n: pageCount });
+  return items;
+}
+
 export default function TradeHistory({ trades = [] }) {
   const { colors } = useTheme();
 
@@ -105,26 +129,38 @@ export default function TradeHistory({ trades = [] }) {
       </table>
       </div>
 
-      {tableTrades.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between mt-[12px]">
-          <span className="text-[11px] text-secondary">
-            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, tableTrades.length)} of {tableTrades.length}
+      {tableTrades.length > 0 && (
+        <div className="flex items-center justify-between gap-3 flex-wrap mt-[14px] pt-3 border-t border-border">
+          <span className="text-[11px] text-secondary tabular-nums">
+            {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + pageTrades.length} of {tableTrades.length}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="px-[11px] py-[5px] rounded-[7px] text-[11px] font-mono font-semibold leading-none cursor-pointer border transition-all duration-150 text-secondary border-border disabled:opacity-40 disabled:cursor-not-allowed"
+              className={NAV_CLASS}
             >
-              ‹ Prev
+              Prev
             </button>
-            <span className="text-[11px] font-mono text-secondary tabular-nums">{page + 1} / {pageCount}</span>
+            {pageWindow(page + 1, pageCount).map(item =>
+              item.gap ? (
+                <span key={item.key} className="min-w-[20px] h-[30px] leading-[30px] text-center text-[12px] text-secondary">…</span>
+              ) : (
+                <button
+                  key={item.key}
+                  onClick={() => setPage(item.n - 1)}
+                  className={pageClass(item.n === page + 1)}
+                >
+                  {item.n}
+                </button>
+              ),
+            )}
             <button
               onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
               disabled={page >= pageCount - 1}
-              className="px-[11px] py-[5px] rounded-[7px] text-[11px] font-mono font-semibold leading-none cursor-pointer border transition-all duration-150 text-secondary border-border disabled:opacity-40 disabled:cursor-not-allowed"
+              className={NAV_CLASS}
             >
-              Next ›
+              Next
             </button>
           </div>
         </div>
