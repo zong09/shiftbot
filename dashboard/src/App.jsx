@@ -3,6 +3,7 @@ import StatusCard   from './components/StatusCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
 import Positions    from './components/Positions.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
+import ConsistencyHeatmap from './components/ConsistencyHeatmap.jsx';
 import PriceChart   from './components/PriceChart.jsx';
 import Settings     from './components/Settings.jsx';
 import Login        from './components/Login.jsx';
@@ -321,6 +322,8 @@ export default function App() {
                 }
               }}
             />
+
+            <ConsistencyHeatmap trades={trades} />
 
             <TradeHistory trades={trades} />
           </div>
