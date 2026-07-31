@@ -131,14 +131,26 @@ A failed order-close (exchange error) does **not** advance `StrategyService`'s `
 
 ### Required env / boot-time validation
 
+- `NODE_ENV` — **required**; boot throws unless it is `development`, `test` or `production`. It decides whether TypeORM auto-syncs the schema and whether the DB connection uses SSL, so "unset" must never quietly mean "not production". The `dev`/`start:dev`/`start:debug` npm scripts set it; jest sets `test`; a production deploy must set it explicitly.
+- Any secret still set to its `.env.example` placeholder is rejected at boot (`/^replace_me|change_me|generate_with/i` in `configuration.ts`). The old placeholders were long enough to satisfy the length checks, so `cp .env.example .env` produced a bootable app signing JWTs with a secret published in the repo.
 - `JWT_SECRET` — boot throws if unset or < 32 chars (`openssl rand -hex 32`).
 - `TOKEN_ENCRYPTION_KEY` — boot throws if unset or not exactly 64 hex chars (`openssl rand -hex 32`). AES-256-GCM key encrypting every secret stored per-mode in `notification_settings` — LINE channel access token, LINE channel secret, Telegram bot token (`src/common/crypto.util.ts`) — never reused for `JWT_SECRET`.
 - `ADMIN_PASSWORD` — first-run admin seeding throws if unset, still `admin1234`, or < 8 chars.
-- `DATABASE_URL` (optional) — if set, takes priority over `DB_HOST`/`DB_USER`/etc.; SSL auto-enables in production or when the URL host looks like Railway/Supabase/Neon.
+- `DATABASE_URL` (optional) — if set, takes priority over `DB_HOST`/`DB_USER`/etc.
+- `DB_PASSWORD` — falls back to the dev default `shiftbot` outside production; **in production, boot throws** unless `DB_PASSWORD` or `DATABASE_URL` is set, rather than trying a publicly-guessable credential.
+- `DB_SSL=true|false` (optional) — explicit DB SSL switch. Production always uses SSL regardless; when `DB_SSL` is unset outside production the old heuristic still applies (URL contains `railway`/`supabase`/`neon`).
 - `DASHBOARD_ORIGIN` (optional, comma-separated) — CORS allowlist. In production an unset allowlist **fails closed** (no cross-origin requests) since the dashboard is served same-origin; in dev CORS is permissive by default.
 - `DB_SSL_REJECT_UNAUTHORIZED=false` — for self-signed DB certs.
 - TypeORM `synchronize` auto-disables when `NODE_ENV=production` (dev only — never rely on it against a real DB).
-- Login is rate-limited: `ThrottlerModule` caps `/api/auth/login` at 5 requests/60s.
+
+### Request security (helmet, default-deny auth, rate limits)
+
+- **`helmet` with an explicit CSP** is applied in `main.ts` before CORS. `script-src` is `'self'` with **no `'unsafe-inline'`** — that is why `dashboard/index.html` loads its theme pre-paint from `dashboard/public/theme-init.js` instead of inlining it. Re-inlining any script silently breaks the page under CSP. `style-src` does allow `'unsafe-inline'` (React style attributes + Tailwind v4's injected `<style>`); HSTS is production-only so a local http:// dev server can't pin `localhost` to https.
+- **`app.set('trust proxy', 1)`** in `main.ts` — without it the throttler keys on the reverse proxy's IP behind Railway et al., making every rate limit global instead of per-client.
+- **Auth is default-deny.** `JwtAuthGuard` is registered as an `APP_GUARD` in `AuthModule` (not `AppModule` — DI needs that module's `JwtService`/`ConfigService`). Every route requires a JWT unless it declares `@Public()` (`src/modules/auth/public.decorator.ts`). Exactly two routes do: `POST /api/auth/login` and `POST /api/line/webhook/:mode`. `DashboardController` deliberately carries **no** `@UseGuards` — adding it back would verify the token twice. `app-guard.wiring.spec.ts` boots a real server to prove an undecorated route still 401s.
+- **Rate limits are global.** `ThrottlerGuard` is an `APP_GUARD` in `AppModule` at 120 req/60s. That number is sized against the dashboard's own traffic: `REFRESH_INTERVAL = 30_000` × 4 endpoints per `loadData` tick = 8 req/min per open tab, so it clears ~15 tabs from one IP — raise it if several operators share one NAT, since the throttler keys on IP, not user. Login overrides down to 5/60s via `@Throttle` on the handler.
+- **The LINE webhook does no DB write before authenticating.** `getDecryptedChannelSecret` uses a read-only `findRow`, not `getSettings` (which upserts on a miss) — an unauthenticated request must not be able to make the bot write.
+- **Logs are scrubbed before they hit disk.** `redactSecrets` in `src/logger.ts` replaces any value under a key matching `/token|secret|password|authorization|api[-_]?key/i` with `[REDACTED]` and drops Axios's `config`/`request`/`response` objects. That last part matters: the Telegram bot token lives in the request **URL path** (`/bot<token>/sendMessage`), so serializing one AxiosError would otherwise write it into `logs/` for the 30-day retention window. Console output is left unredacted for local debugging.
 
 ### Migrations
 

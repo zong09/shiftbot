@@ -50,11 +50,18 @@ export class NotificationSettingsService {
     return this.configService.get<string>('security.tokenEncryptionKey')!;
   }
 
+  // Read-only lookup. getSettings() creates the row on a miss, which is fine behind the
+  // dashboard's JWT but not on the public LINE webhook path — an unauthenticated request
+  // must never be able to make the bot write to the database.
+  private findRow(mode: NotificationMode): Promise<NotificationSettingsEntity | null> {
+    return this.repo.findOne({ where: { mode } });
+  }
+
   async getSettings(mode: NotificationMode): Promise<NotificationSettingsEntity> {
-    let row = await this.repo.findOne({ where: { mode } });
+    let row = await this.findRow(mode);
     if (!row) {
       await this.repo.upsert({ mode }, ['mode']);
-      row = await this.repo.findOne({ where: { mode } });
+      row = await this.findRow(mode);
     }
     return row!;
   }
@@ -120,9 +127,11 @@ export class NotificationSettingsService {
   // Used by the inbound LINE webhook to verify x-line-signature. Unlike
   // getDecryptedToken this never throws: an unreadable secret must make the webhook
   // answer 401, not 500 — a 500 just makes LINE retry the same doomed request.
+  // findRow, not getSettings: this runs before the signature check on a public endpoint,
+  // so it must not create a row (or do any write) for an unauthenticated caller.
   async getDecryptedChannelSecret(mode: NotificationMode): Promise<string | null> {
-    const row = await this.getSettings(mode);
-    if (!row.lineChannelSecretEnc) return null;
+    const row = await this.findRow(mode);
+    if (!row?.lineChannelSecretEnc) return null;
     try {
       return decrypt(row.lineChannelSecretEnc, this.encryptionKey());
     } catch {
