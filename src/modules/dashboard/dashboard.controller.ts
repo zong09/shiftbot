@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, NotFoundException, DefaultValuePipe, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, NotFoundException, DefaultValuePipe, ParseUUIDPipe } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { MarketDataService } from '../market-data/market-data.service';
@@ -6,13 +6,13 @@ import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { NotificationSettingsService, NotificationMode, NotificationChannel } from '../notification-settings/notification-settings.service';
 import { NotificationService } from '../notification/notification.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UpdateSettingsDto, SYMBOL_PATTERN, VALID_TIMEFRAMES } from './dto/update-settings.dto';
 import { AddPairDto } from './dto/add-pair.dto';
 import { UpdateNotificationSettingsDto } from '../notification-settings/dto/update-notification-settings.dto';
 import { ParseModePipe, ParseChannelPipe } from './mode.pipe';
 
-@UseGuards(JwtAuthGuard)
+// No @UseGuards here on purpose — JwtAuthGuard is an APP_GUARD (auth.module.ts), so
+// every route below requires a JWT by default. Adding it again would verify twice.
 @Controller('api')
 export class DashboardController {
   constructor(

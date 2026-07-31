@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
@@ -28,15 +29,26 @@ import { AuthModule } from './modules/auth/auth.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     ScheduleModule.forRoot(),
-    // Rate-limit config consumed by ThrottlerGuard on the login endpoint
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }]),
+    // Global rate limit. Sized against the dashboard's own traffic: App.jsx polls on a
+    // 30s REFRESH_INTERVAL and loadData() fires 4 endpoints per tick = 8 req/min per
+    // open tab, so 120 leaves room for ~15 tabs from one IP. The throttler keys on IP,
+    // not user — raise this if several operators share one NAT. Login overrides it
+    // down to 5/min via @Throttle in auth.controller.ts.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('database.url');
         const isProd = process.env.NODE_ENV === 'production';
-        const useSsl = isProd || (url && (url.includes('railway') || url.includes('supabase') || url.includes('neon')));
+        // DB_SSL is the explicit answer; the hosted-provider substring sniff is only the
+        // fallback for when it is unset. Production always uses SSL regardless.
+        const sslEnv = process.env.DB_SSL;
+        const useSsl =
+          isProd ||
+          (sslEnv !== undefined
+            ? sslEnv === 'true'
+            : !!(url && (url.includes('railway') || url.includes('supabase') || url.includes('neon'))));
         // Auto-sync schema in dev only — in production a schema drift must never
         // silently ALTER live trading tables; use migrations instead.
         const synchronize = !isProd;
@@ -91,6 +103,12 @@ import { AuthModule } from './modules/auth/auth.module';
     StrategyModule,
     DashboardModule,
     AuthModule,
+  ],
+  providers: [
+    // Every route is rate-limited, including the public LINE webhook. Registered in the
+    // root module so it runs before AuthModule's APP_GUARD — an unauthenticated flood
+    // gets throttled before it reaches JWT verification.
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

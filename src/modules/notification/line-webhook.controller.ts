@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request } from 'express';
+import { Public } from '../auth/public.decorator';
 import { ParseModePipe } from '../dashboard/mode.pipe';
 import {
   NotificationMode,
@@ -56,6 +57,8 @@ export class LineWebhookController {
   ) {}
 
   // ต้องตอบ 200 เสมอเมื่อ signature ถูกต้อง — ปุ่ม Verify ใน console ส่ง events: [] มา
+  // @Public(): LINE ไม่มี JWT ให้ส่ง — auth ของ route นี้คือ HMAC signature ข้างล่าง
+  @Public()
   @Post('webhook/:mode')
   @HttpCode(HttpStatus.OK)
   async handleWebhook(
