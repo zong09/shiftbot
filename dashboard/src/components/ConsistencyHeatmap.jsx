@@ -43,7 +43,10 @@ export default function ConsistencyHeatmap({ trades = [] }) {
       </div>
 
       <div className="overflow-x-auto pb-0.5">
-        <div className="min-w-[860px]">
+        {/* hover ขยายช่อง 1.3x — ถ้าไม่เผื่อที่ขวา/ล่าง ส่วนที่ล้นจะกลายเป็น scrollable overflow
+            แล้ว overflow-x-auto (ซึ่งดัน overflow-y จาก visible เป็น auto ไปด้วย) จะโชว์ scrollbar
+            ทุกครั้งที่ hover  4px ครอบคลุมส่วนล้นที่กว้างสุด: 0.15 x ช่อง ~21px ของการ์ดที่ 1284px */}
+        <div className="min-w-[860px] pr-1 pb-1">
           <div
             className="grid gap-[3px] mb-[6px]"
             style={{ gridTemplateColumns: `repeat(${heat.cols}, 1fr)` }}
