@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { DashboardController } from './dashboard.controller';
 import { TradingService } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
-import { MarketDataService } from '../market-data/market-data.service';
+import { MarketDataService, MAX_CANDLES } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { NotificationSettingsService } from '../notification-settings/notification-settings.service';
@@ -68,6 +68,8 @@ function makeTradingService(): jest.Mocked<Partial<TradingService>> {
     getTradeHistory:   jest.fn().mockResolvedValue([]),
     syncPositions:     jest.fn().mockResolvedValue(undefined),
     validateOrderSize: jest.fn().mockResolvedValue(undefined),
+    openLong:          jest.fn().mockResolvedValue(makeOpenPosition()),
+    openShort:         jest.fn().mockResolvedValue(makeOpenPosition({ side: 'short' })),
   } as any;
 }
 
@@ -81,6 +83,8 @@ function makeMarketDataService(): jest.Mocked<Partial<MarketDataService>> {
   return {
     fetchOHLCV:   jest.fn().mockResolvedValue([]),
     fetchBalance: jest.fn().mockResolvedValue({ total: 0, free: 0, used: 0 }),
+    fetchTicker:  jest.fn().mockResolvedValue({ bid: 49_999, ask: 50_001, last: 50_000 }),
+    fetchOHLCVByTimeframe: jest.fn().mockResolvedValue([]),
   } as any;
 }
 
@@ -123,6 +127,7 @@ describe('DashboardController', () => {
   let cdcSvc: ReturnType<typeof makeCdcService>;
   let notificationSettingsSvc: ReturnType<typeof makeNotificationSettingsService>;
   let notificationSvc: ReturnType<typeof makeNotificationService>;
+  let settingsSvc: any;
 
   beforeEach(async () => {
     tradingSvc    = makeTradingService();
@@ -131,6 +136,11 @@ describe('DashboardController', () => {
     cdcSvc        = makeCdcService();
     notificationSettingsSvc = makeNotificationSettingsService();
     notificationSvc = makeNotificationService();
+    settingsSvc = {
+      getSettings:    jest.fn().mockResolvedValue({ status: 'on' }),
+      getAllSettings: jest.fn().mockResolvedValue([{ symbol: 'BTC/USDT:USDT', timeframe: '1h', status: 'on' }]),
+      updateSettings: jest.fn().mockResolvedValue({}),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DashboardController],
@@ -139,7 +149,7 @@ describe('DashboardController', () => {
         { provide: StrategyService,       useValue: strategySvc },
         { provide: MarketDataService,     useValue: marketDataSvc },
         { provide: CdcActionZoneService,  useValue: cdcSvc },
-        { provide: TradingSettingsService, useValue: { getSettings: jest.fn().mockResolvedValue({ status: 'on' }), getAllSettings: jest.fn().mockResolvedValue([{ symbol: 'BTC/USDT:USDT', timeframe: '1h', status: 'on' }]), updateSettings: jest.fn().mockResolvedValue({}) } },
+        { provide: TradingSettingsService, useValue: settingsSvc },
         { provide: NotificationSettingsService, useValue: notificationSettingsSvc },
         { provide: NotificationService,         useValue: notificationSvc },
       ],
@@ -325,9 +335,11 @@ describe('DashboardController', () => {
       expect(cdcSvc.calculate).toHaveBeenCalledWith(candles);
     });
 
-    it('fetches 200 candles from MarketDataService', async () => {
+    // MAX_CANDLES is what the chart pans over, and the cache is shared with the
+    // strategy — every caller asks for the same window, hence the constant.
+    it('fetches MAX_CANDLES candles from MarketDataService', async () => {
       await controller.getIndicator();
-      expect(marketDataSvc.fetchOHLCV).toHaveBeenCalledWith(200, 'BTC/USDT:USDT');
+      expect(marketDataSvc.fetchOHLCV).toHaveBeenCalledWith(MAX_CANDLES, 'BTC/USDT:USDT');
     });
   });
 
@@ -386,6 +398,98 @@ describe('DashboardController', () => {
       (notificationSvc.sendTest as jest.Mock).mockResolvedValueOnce(false);
       await expect(controller.sendTestNotification('live', 'telegram')).rejects.toThrow(BadRequestException);
       expect(notificationSettingsSvc.markSent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── POST /api/positions/manual ────────────────────────────────────────────
+
+  describe('POST /api/positions/manual', () => {
+    const body = {
+      mode: 'live' as const,
+      symbol: 'BTC/USDT:USDT',
+      side: 'long' as const,
+      orderSizeUsdt: 12,
+      leverage: 5,
+    };
+
+    it('opens a long with the requested size/leverage, not the pair settings values', async () => {
+      const response = await controller.openManualPosition({ ...body });
+
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(
+        50_000, expect.anything(), 'live', 'BTC/USDT:USDT',
+        { orderSizeUsdt: 12, leverage: 5, signal: 'MANUAL' },
+      );
+      expect(tradingSvc.openShort).not.toHaveBeenCalled();
+      expect(response.ok).toBe(true);
+    });
+
+    it('opens a short when side is short', async () => {
+      await controller.openManualPosition({ ...body, side: 'short' });
+      expect(tradingSvc.openShort).toHaveBeenCalled();
+      expect(tradingSvc.openLong).not.toHaveBeenCalled();
+    });
+
+    // The entry price is the exchange's, never the client's — the DTO has no price field,
+    // so this proves the handler sources it from the ticker.
+    it('uses the live ticker price as the entry price', async () => {
+      (marketDataSvc.fetchTicker as jest.Mock).mockResolvedValueOnce({ bid: 1, ask: 3, last: 61_234.5 });
+      await controller.openManualPosition({ ...body });
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(
+        61_234.5, expect.anything(), 'live', 'BTC/USDT:USDT', expect.anything(),
+      );
+    });
+
+    // getSettings() upserts on a miss, so an unknown symbol must be rejected before
+    // it is ever called — otherwise a phantom settings row appears with no cron job.
+    it('404s for a symbol that is not a configured pair, without submitting an order', async () => {
+      settingsSvc.getAllSettings.mockResolvedValueOnce([{ symbol: 'ETH/USDT:USDT' }]);
+
+      await expect(controller.openManualPosition({ ...body })).rejects.toThrow(NotFoundException);
+      expect(settingsSvc.getSettings).not.toHaveBeenCalled();
+      expect(tradingSvc.openLong).not.toHaveBeenCalled();
+    });
+
+    // openLong returns null at the per-side cap without submitting anything.
+    it('409s when the side is already at maxPositions', async () => {
+      (tradingSvc.openLong as jest.Mock).mockResolvedValueOnce(null);
+      await expect(controller.openManualPosition({ ...body })).rejects.toThrow(ConflictException);
+    });
+
+    it('propagates the min-notional BadRequest and never submits the order', async () => {
+      (tradingSvc.validateOrderSize as jest.Mock).mockRejectedValueOnce(new BadRequestException('too small'));
+      await expect(controller.openManualPosition({ ...body })).rejects.toThrow(BadRequestException);
+      expect(tradingSvc.openLong).not.toHaveBeenCalled();
+    });
+
+    // trade_logs.zone is NOT NULL; CDCZone.NONE is the existing sentinel for "no zone".
+    it('falls back to CDCZone.NONE when the indicator cannot be computed', async () => {
+      (cdcSvc.calculate as jest.Mock).mockReturnValueOnce(null);
+      await controller.openManualPosition({ ...body });
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(
+        50_000, CDCZone.NONE, 'live', 'BTC/USDT:USDT', expect.anything(),
+      );
+    });
+
+    it('passes the computed zone through to the trade log', async () => {
+      (marketDataSvc.fetchOHLCVByTimeframe as jest.Mock).mockResolvedValueOnce([{ close: 1 }]);
+      (cdcSvc.calculate as jest.Mock).mockReturnValueOnce(makeCdcResult({ zone: CDCZone.BULL }));
+      await controller.openManualPosition({ ...body });
+      expect(tradingSvc.openLong).toHaveBeenCalledWith(
+        50_000, CDCZone.BULL, 'live', 'BTC/USDT:USDT', expect.anything(),
+      );
+    });
+
+    // The logged zone is a permanent DB fact — it has to be the zone the bot's own signal
+    // path would see for that pair, not a default 1h/12/26 reading.
+    it('computes the zone on the pair timeframe and EMA settings', async () => {
+      settingsSvc.getAllSettings.mockResolvedValueOnce([
+        { symbol: 'BTC/USDT:USDT', timeframe: '4h', emaFast: 9, emaSlow: 21 },
+      ]);
+      const candles = [{ close: 1 }];
+      (marketDataSvc.fetchOHLCVByTimeframe as jest.Mock).mockResolvedValueOnce(candles);
+      await controller.openManualPosition({ ...body });
+      expect(marketDataSvc.fetchOHLCVByTimeframe).toHaveBeenCalledWith(MAX_CANDLES, '4h', 'BTC/USDT:USDT');
+      expect(cdcSvc.calculate).toHaveBeenCalledWith(candles, undefined, 9, 21);
     });
   });
 });

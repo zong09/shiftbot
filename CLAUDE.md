@@ -74,7 +74,7 @@ If `BINANCE_API_KEY` is absent/placeholder, live mode is disabled entirely (`isL
 
 `MarketDataService.subscribeToKlineStream()` is the only path `fetchOHLCVByTimeframe`/`fetchOHLCV` use. Per `symbol:timeframe` cache key:
 
-- First call REST-backfills 200 candles, then opens a Binance kline WebSocket (`wss://fstream.binance.com/market/ws/<symbol>@kline_<tf>`) to keep the cache updated in real time.
+- First call REST-backfills `MAX_CANDLES` (240) candles, then opens a Binance kline WebSocket (`wss://fstream.binance.com/market/ws/<symbol>@kline_<tf>`) to keep the cache updated in real time. That one exported constant is the backfill size, the default `limit` of every fetch method **and** the cap the WS updater trims to — keep them equal: the cache is keyed `symbol:timeframe` and shared between `StrategyService` and the chart, so a per-caller limit would make the window depend on whichever subscriber opened the stream first. 240 is what the dashboard chart pans over (56-candle window).
 - The cache is only trusted when fresh (newest candle ≤ 2 timeframes old) **and** contiguous over the last 30 candles — a WS gap forces a REST refetch rather than feeding a gapped series into the EMA.
 - A watchdog reconnects the socket if idle > 60s; on reconnect it REST-backfills first, then resubscribes.
 - `closeStreamsForSymbol()` tears down every timeframe stream for a symbol once no mode trades it anymore (called from the remove-pair endpoint).
@@ -122,6 +122,17 @@ Zones 1–4 = bullish, Zones 5–8 = bearish.
 **Each leg is switchable off with `pct = 0`**, per (mode, symbol): `stopLossPct: 0` places no `STOP_MARKET`, `takeProfitPct: 0` places no `TAKE_PROFIT_MARKET`. There is deliberately **no software fallback** — a position opened with SL off has no stop anywhere and exits only on a CDC zone flip. `0` is the single sentinel for "off" everywhere: it is what `positions.stopLoss`/`takeProfit` store (both are `float8` **NOT NULL** on a synchronize-created table with no baseline migration, so `null` would need a migration), what `placeProtectiveOrders` checks before placing a leg, and what suppresses the partial-failure alert (a leg that is off is not "missing", so alerting on it would cry wolf on every entry). Consequences of the sentinel: `checkSLTP()` must keep its `> 0` guards or `price >= 0` is trivially true and every short instant-closes on SL (every long on TP), and `sendOpenPosition` prints `ปิด` rather than a nonsensical `0.00`.
 
 Methods accept optional `emaFastOverride` / `emaSlowOverride` — StrategyService passes per-(mode, symbol) values from DB.
+
+### Manual entry (`POST /api/positions/manual`)
+
+The dashboard's "เปิด Position เอง" dialog opens a position without waiting for a CDC signal. It reuses the bot's own entry path — `openLong`/`openShort` take an optional `EntryOverrides` (`orderSizeUsdt`, `leverage`, `signal`) that falls back to the pair's settings, so the signal path is unchanged.
+
+- **Market orders only.** The design also draws a Limit chip; it renders disabled because a resting limit order has no position row and `positions.status` only models `open → closing → closed`. Adding it means a pending-order lifecycle, fill detection in `syncPositions`, and SL/TP placed on fill.
+- **SL/TP are inherited, never overridden** — same `stopLossPct`/`takeProfitPct` (and same `0` = off sentinel) as a bot entry.
+- **The bot owns the resulting position**: no `manual` flag, no StrategyService change, so the next CDC flip closes it like any other. The per-position Close button is the operator's escape hatch.
+- **`maxPositions` is respected** (409 at the cap). Since the DTO validation caps `maxPositions` at 1 — one-way futures nets same-side legs, which would break `syncPositions` leg tracking — a manual entry only succeeds while that side is flat.
+- The handler validates the symbol with `getAllSettings` **before** anything else: `getSettings` upserts on a miss and would create a phantom settings row with no cron job.
+- The entry price is read from the exchange ticker server-side; the DTO has no price field. The logged zone is computed on **that pair's** timeframe and EMA settings (not the 1h/12/26 defaults), since `trade_logs.zone` is `NOT NULL` and the row is permanent — `CDCZone.NONE` (0) only when the indicator can't be computed. `signal` is `'MANUAL'`.
 
 ### Position lifecycle & concurrency safety
 
@@ -197,6 +208,7 @@ All state persists in PostgreSQL. Positions and trade history survive bot restar
 | `POST /api/settings/:mode/pairs` | Add a new symbol to a mode (creates settings row + cron job) |
 | `DELETE /api/settings/:mode/pairs?symbol=` | Remove a pair — refuses if positions are still open |
 | `POST /api/positions/:id/close` | Manually market-close a single position by id |
+| `POST /api/positions/manual` | Open a position by hand (**market only**) — body `{ mode, symbol, side, orderSizeUsdt, leverage }`. 404s for a symbol that isn't a configured pair, 409s when that side is already at `maxPositions`. See Manual entry below |
 | `GET /api/health` | Uptime check |
 | `GET /api/settings/notifications/:mode` | Per-mode LINE **and** Telegram notification settings — every secret returned masked (e.g. `8Ff2•••wQ8f`) |
 | `PUT /api/settings/notifications/:mode` | Update per-mode notification settings (both channels in one payload); a provided secret is encrypted before storage, an omitted one leaves the stored value untouched |
@@ -244,6 +256,7 @@ The LINE push target (`notification_settings.lineGroupId`) can only be learned f
 - `src/config/configuration.ts` — .env mapping (Binance keys, DB, notifications, admin/jwt/token-encryption credentials)
 - `src/app.module.ts` — TypeORM/DATABASE_URL wiring, static dashboard serving, throttler
 - `dashboard/src/App.jsx` — main React app, auth state, data fetching
-- `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector
+- `dashboard/src/components/PriceChart.jsx` — chart with CDC overlay + interval selector. Draws a sliding `VIEW_SIZE` (56) window over the 240-candle series: `viewEnd` (`null` = pinned to latest) is sliced off the props **before** the memos, so the price domain, CDC gradient, EMA paths, time axis, markers and the O/H/L/C readout all follow the window for free. Two things deliberately read the **full** series instead — the zone badge and the EMA legend, which report current state, not the panned-to candle. Off-window trade markers are culled by `snapToNearestCandle` returning `null`
+- `dashboard/src/components/ManualEntryDialog.jsx` — "เปิด Position เอง" modal (market-only; see Manual entry above)
 - `dashboard/src/components/Settings.jsx` — per-pair settings form
 - `dashboard/src/components/NotificationSettings.jsx` — per-mode notification form; a `CHANNELS` table drives the channel cards, fields and event rows, so adding a third provider means adding one entry there plus the DB columns

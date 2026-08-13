@@ -44,3 +44,9 @@ export const PRICE_TAG = { w: 64, h: 18, rx: 3, fontSize: 10, dy: 4 };  // desig
 export const TIME_TAG = { w: 72, h: 16, rx: 3, fontSize: 9.5, dx: 36, dy: 13.5, top: 2 };  // design L596-597
 
 export const FONT = { axis: 10, boundaryWeight: 600, normalWeight: 400 };  // design L512
+
+// History panning: the API serves MAX_CANDLES (240) per timeframe, of which the chart
+// draws a sliding window of VIEW_SIZE. design: `Math.min(this.state.viewSize||56,n)`
+export const VIEW_SIZE = 56;
+export const PAN_STEP = 14;  // design: panBack=panBy(-14), panFwd=panBy(14)
+export const NAV_BTN = { size: 26, radius: 7, icon: 13, offOpacity: 0.4 };  // design: chartNav()

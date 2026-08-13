@@ -46,6 +46,8 @@ export const updateSettings = (mode, data)    => client.put(`/settings/${mode}`,
 export const addPair        = (mode, symbol)  => client.post(`/settings/${mode}/pairs`, { symbol }).then(r => r.data);
 export const removePair     = (mode, symbol)  => client.delete(`/settings/${mode}/pairs?symbol=${encodeURIComponent(symbol)}`).then(r => r.data);
 export const closePosition  = (id)            => client.post(`/positions/${id}/close`).then(r => r.data);
+// Manual entry — market order only; the server sources the entry price from the exchange.
+export const openManualPosition = (payload)   => client.post('/positions/manual', payload).then(r => r.data);
 
 export const fetchNotificationSettings  = (mode) => client.get(`/settings/notifications/${mode}`).then(r => r.data);
 export const updateNotificationSettings = (mode, data) => client.put(`/settings/notifications/${mode}`, data).then(r => r.data);

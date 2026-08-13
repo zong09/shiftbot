@@ -11,6 +11,17 @@ import { TradeLogEntity } from '../../database/entities/trade-log.entity';
 export type TradingMode = 'live' | 'sandbox';
 type Exchange = ReturnType<MarketDataService['getExchange']>;
 
+/**
+ * Per-order overrides for a manual entry (POST /api/positions/manual). Omitted
+ * fields fall back to the pair's DB settings, so the CDC signal path is unaffected.
+ * SL/TP always come from settings — there is deliberately no override for them.
+ */
+export interface EntryOverrides {
+  orderSizeUsdt?: number;
+  leverage?: number;
+  signal?: string;
+}
+
 @Injectable()
 export class TradingService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TradingService.name);
@@ -313,8 +324,10 @@ export class TradingService implements OnApplicationBootstrap {
   // ──────────────────────────────────────────────
   //  OPEN LONG
   // ──────────────────────────────────────────────
-  async openLong(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<Position | null> {
+  async openLong(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string, opts?: EntryOverrides): Promise<Position | null> {
     const s = await this.settingsService.getSettings(mode, symbol);
+    const orderSizeUsdt = opts?.orderSizeUsdt ?? s.orderSizeUsdt;
+    const leverage      = opts?.leverage      ?? s.leverage;
 
     const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol, side: 'long' } });
     if (openCount >= s.maxPositions) {
@@ -325,7 +338,7 @@ export class TradingService implements OnApplicationBootstrap {
     try {
       const exchange = this.marketDataService.getExchange(mode);
       const quantity = await this.toOrderAmount(
-        exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
+        exchange, symbol, (orderSizeUsdt * leverage) / currentPrice,
       );
 
       // กวาด SL/TP ค้างจาก position เก่าก่อนเปิดไม้ใหม่ — กัน order ผี trigger มาปิดไม้นี้
@@ -334,7 +347,7 @@ export class TradingService implements OnApplicationBootstrap {
       let entryPrice = currentPrice;
       let orderId: string | undefined;
 
-      await exchange.setLeverage(s.leverage, symbol);
+      await exchange.setLeverage(leverage, symbol);
       const order = await exchange.createMarketBuyOrder(symbol, quantity, {
         reduceOnly: false,
       });
@@ -371,7 +384,7 @@ export class TradingService implements OnApplicationBootstrap {
           price:   entryPrice,
           quantity,
           zone,
-          signal:  'BUY',
+          signal:  opts?.signal ?? 'BUY',
           orderId,
           mode,
         }),
@@ -473,8 +486,10 @@ export class TradingService implements OnApplicationBootstrap {
   // ──────────────────────────────────────────────
   //  OPEN SHORT
   // ──────────────────────────────────────────────
-  async openShort(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string): Promise<Position | null> {
+  async openShort(currentPrice: number, zone: CDCZone, mode: TradingMode, symbol: string, opts?: EntryOverrides): Promise<Position | null> {
     const s = await this.settingsService.getSettings(mode, symbol);
+    const orderSizeUsdt = opts?.orderSizeUsdt ?? s.orderSizeUsdt;
+    const leverage      = opts?.leverage      ?? s.leverage;
 
     const openCount = await this.positionRepo.count({ where: { status: 'open', mode, symbol, side: 'short' } });
     if (openCount >= s.maxPositions) {
@@ -485,7 +500,7 @@ export class TradingService implements OnApplicationBootstrap {
     try {
       const exchange = this.marketDataService.getExchange(mode);
       const quantity = await this.toOrderAmount(
-        exchange, symbol, (s.orderSizeUsdt * s.leverage) / currentPrice,
+        exchange, symbol, (orderSizeUsdt * leverage) / currentPrice,
       );
 
       // กวาด SL/TP ค้างจาก position เก่าก่อนเปิดไม้ใหม่ — กัน order ผี trigger มาปิดไม้นี้
@@ -494,7 +509,7 @@ export class TradingService implements OnApplicationBootstrap {
       let entryPrice = currentPrice;
       let orderId: string | undefined;
 
-      await exchange.setLeverage(s.leverage, symbol);
+      await exchange.setLeverage(leverage, symbol);
       const order = await exchange.createMarketSellOrder(symbol, quantity, {
         reduceOnly: false,
       });
@@ -531,7 +546,7 @@ export class TradingService implements OnApplicationBootstrap {
           price:   entryPrice,
           quantity,
           zone,
-          signal:  'SELL',
+          signal:  opts?.signal ?? 'SELL',
           orderId,
           mode,
         }),

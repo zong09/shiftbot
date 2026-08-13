@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
-import { MarketDataService } from '../market-data/market-data.service';
+import { MarketDataService, MAX_CANDLES } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { NotificationService } from '../notification/notification.service';
@@ -143,7 +143,7 @@ export class StrategyService implements OnModuleInit {
 
       this.logger.log(`=== [${mode}][${symbol}] เริ่มรัน CDC Strategy (status: ${s.status}) ===`);
 
-      const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, s.timeframe, symbol);
+      const candles = await this.marketDataService.fetchOHLCVByTimeframe(MAX_CANDLES, s.timeframe, symbol);
       if (!candles.length) {
         this.logger.warn(`[${mode}][${symbol}] ไม่ได้รับ candle data`);
         return;
