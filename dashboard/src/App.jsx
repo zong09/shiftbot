@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import StatusCard   from './components/StatusCard.jsx';
 import PortfolioSummary from './components/PortfolioSummary.jsx';
 import Positions    from './components/Positions.jsx';
+import ManualEntryDialog from './components/ManualEntryDialog.jsx';
 import TradeHistory from './components/TradeHistory.jsx';
 import ConsistencyHeatmap from './components/ConsistencyHeatmap.jsx';
 import PriceChart   from './components/PriceChart.jsx';
@@ -9,7 +10,7 @@ import Settings     from './components/Settings.jsx';
 import Login        from './components/Login.jsx';
 import { LogoTile, Refresh, Sun, Moon, Logout } from './components/icons.jsx';
 import { useTheme } from './ThemeContext.jsx';
-import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair, closePosition } from './api.js';
+import { fetchStatus, fetchTrades, fetchCandles, fetchSettings, updateSettings, addPair, removePair, closePosition, openManualPosition } from './api.js';
 
 const REFRESH_INTERVAL = 30_000;
 
@@ -49,6 +50,7 @@ export default function App() {
   const [countdown,      setCountdown]      = useState(REFRESH_INTERVAL / 1000);
   const [settings,       setSettings]       = useState(null);
   const [page,           setPage]           = useState('dashboard');
+  const [manualOpen,     setManualOpen]     = useState(false);
   const prevModeRef   = useRef(null);
   const prevSymbolRef = useRef(null);
   const loadSeqRef    = useRef(0);
@@ -313,6 +315,7 @@ export default function App() {
             <Positions
               positions={status?.openPositions ?? []}
               pairs={status?.pairs ?? []}
+              onManualOpen={() => setManualOpen(true)}
               onClose={async (id) => {
                 try {
                   await closePosition(id);
@@ -320,6 +323,19 @@ export default function App() {
                 } catch (err) {
                   setError(`ปิด position ไม่สำเร็จ: ${err.response?.data?.message ?? err.message}`);
                 }
+              }}
+            />
+
+            {/* The server owns entry price and quantity, so refetch rather than
+                prepending an optimistic row the way the prototype does. */}
+            <ManualEntryDialog
+              open={manualOpen}
+              mode={mode}
+              pairs={status?.pairs ?? []}
+              onClose={() => setManualOpen(false)}
+              onSubmit={async (payload) => {
+                await openManualPosition(payload);
+                await loadData(mode, chartTimeframe, chartSymbol);
               }}
             />
 

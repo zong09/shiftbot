@@ -5,7 +5,7 @@ const TD_CLASS = 'px-[10px] py-[11px] tabular-nums';
 
 const signed = (n) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}`;
 
-export default function Positions({ positions = [], pairs = [], onClose }) {
+export default function Positions({ positions = [], pairs = [], onClose, onManualOpen }) {
   const [closingId, setClosingId] = useState(null);
 
   const handleClose = async (p) => {
@@ -28,9 +28,22 @@ export default function Positions({ positions = [], pairs = [], onClose }) {
 
   return (
     <div className="bg-surface border border-border rounded-2xl px-[18px] py-4 shadow-[0_1px_2px_rgba(40,48,58,0.05),0_14px_36px_-28px_rgba(40,48,58,0.3)]">
-      <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0 mb-3">
-        Open Positions <span className="text-[14px] font-medium text-secondary">({positions.length})</span>
-      </h2>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <h2 className="text-[16px] font-semibold tracking-[-0.01em] m-0">
+          Open Positions <span className="text-[14px] font-medium text-secondary">({positions.length})</span>
+        </h2>
+        {onManualOpen && (
+          <button
+            onClick={onManualOpen}
+            className="inline-flex items-center gap-1.5 px-[15px] py-2 rounded-[9px] border border-accent bg-accent/12 text-accent text-[12.5px] font-semibold cursor-pointer hover:bg-accent hover:text-white transition-colors duration-150"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            เปิด Position เอง
+          </button>
+        )}
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[12.5px] min-w-[520px]">
           <thead>

@@ -6,9 +6,33 @@ import {
   PRICE_LABEL_DX, PRICE_LABEL_DY, DOMAIN_PAD_PCT, BAND_OPACITY, AREA_OPACITY,
   LINE_WIDTH, LAST_DOT, EMA, MARKER, MARKER_STROKE, MARKER_OPACITY,
   CONNECTOR_DASH, LAST_LINE, CROSS, PRICE_TAG, TIME_TAG, FONT,
+  VIEW_SIZE, PAN_STEP, NAV_BTN,
 } from '../chartSpec.js';
 
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d'];
+
+/** 26×26 pan arrow — design: chartNav(off) */
+function NavButton({ label, disabled, onClick, d }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      className="flex items-center justify-center rounded-[7px] border border-border bg-surface text-secondary transition-colors duration-150"
+      style={{
+        width: NAV_BTN.size,
+        height: NAV_BTN.size,
+        ...(disabled ? { opacity: NAV_BTN.offOpacity, cursor: 'not-allowed' } : { cursor: 'pointer' }),
+      }}
+    >
+      <svg width={NAV_BTN.icon} height={NAV_BTN.icon} viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d={d} />
+      </svg>
+    </button>
+  );
+}
 
 // Bar duration per timeframe. Used for the time-axis labels and to decide whether a
 // trade's fill is close enough to a loaded candle to place a marker on it.
@@ -102,8 +126,8 @@ function axisFormatter(span) {
 }
 
 export default function PriceChart({
-  candles = [],
-  indicators = [],
+  candles: allCandles = [],
+  indicators: allIndicators = [],
   trades = [],
   symbol,
   accent = DEFAULT_ACCENT.live,
@@ -125,6 +149,37 @@ export default function PriceChart({
   // Crosshair position: bar index plus the raw mouse y, both in SVG pixels.
   const [cross, setCross] = useState(null);
   const [markerHover, setMarkerHover] = useState(null);
+
+  // ── History window ────────────────────────────────────────────────────────
+  // viewEnd is the index one past the newest visible candle; null pins the window
+  // to the latest, so an appended candle scrolls the view instead of leaving it behind.
+  const [viewEnd, setViewEnd] = useState(null);
+  const dragRef = useRef(null);
+
+  const win = useMemo(() => {
+    const n = allCandles.length;
+    const size = Math.min(VIEW_SIZE, n);
+    // Clamp: viewEnd can outlive a timeframe switch or a shorter series
+    const end = Math.max(size, Math.min(n, viewEnd ?? n));
+    return { start: end - size, end, size, n, atLatest: end >= n };
+  }, [allCandles.length, viewEnd]);
+
+  // Every derived value below — price domain, CDC gradient, EMA paths, time axis,
+  // markers, the O/H/L/C readout — is built from these, so slicing here is all it takes.
+  const candles = useMemo(() => allCandles.slice(win.start, win.end), [allCandles, win.start, win.end]);
+  const indicators = useMemo(() => allIndicators.slice(win.start, win.end), [allIndicators, win.start, win.end]);
+
+  // A timeframe or symbol switch returns to the newest window (design: tf chips reset it).
+  useEffect(() => { setViewEnd(null); }, [chartTimeframe, symbol]);
+
+  // Shared by the ‹ / › buttons and the drag: clamp, then collapse "at the end" to null.
+  const panTo = end => {
+    const ne = Math.max(win.size, Math.min(win.n, end));
+    if (ne === win.end) return;
+    setViewEnd(ne >= win.n ? null : ne);
+    setCross(null);
+    setMarkerHover(null);
+  };
   // ':' is legal in a React id but not inside a url(#…) reference
   const gid = 'zgrad-' + useId().replace(/:/g, '');
 
@@ -383,7 +438,21 @@ export default function PriceChart({
     return els;
   }, [trades, candles, colors, series, geom, chartTimeframe]);
 
+  // Drag-to-pan. `per` is candles-per-pixel, so dragging the full plot width moves a
+  // full window regardless of how wide the card is (design: cs.length / rect.width).
+  const onDown = e => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect?.width) return;
+    dragRef.current = { x: e.clientX, end: win.end, per: win.size / rect.width };
+  };
+  const endDrag = () => { dragRef.current = null; };
+
   const onMove = e => {
+    if (dragRef.current) {
+      const d = dragRef.current;
+      panTo(d.end + Math.round((d.x - e.clientX) * d.per));
+      return;
+    }
     if (!geom) return;
     const rect = wrapRef.current.getBoundingClientRect();
     if (!rect.width) return;
@@ -431,7 +500,11 @@ export default function PriceChart({
     }
   }
 
-  const lastInd     = indicators[indicators.length - 1];
+  // The zone badge and EMA legend report the CURRENT indicator state, so they read the
+  // newest candle even while the view is panned back (design: zoneOf(candles.length-1)).
+  const lastInd     = allIndicators[allIndicators.length - 1];
+  // The O/H/L/C readout, by contrast, follows the crosshair and falls back to the last
+  // VISIBLE candle (design: ci = cross ? start+cross.i : end-1).
   const displayData = (cross && candles[cross.i]) || candles[candles.length - 1] || null;
   const lastZone    = zoneByNumber(lastInd?.zone);
   const badgeStyle  = zoneBadgeStyle(lastInd?.zone);
@@ -460,6 +533,27 @@ export default function PriceChart({
                 {tf}
               </button>
             ))}
+          </div>
+
+          {/* History panning — divider, ‹ / ›, "ล่าสุด", and the current offset */}
+          <div className="flex items-center gap-[5px] pl-1 border-l border-border">
+            <NavButton label="เลื่อนย้อนหลัง" disabled={win.start <= 0}
+                       onClick={() => panTo(win.end - PAN_STEP)} d="M15 6l-6 6 6 6" />
+            <NavButton label="เลื่อนไปข้างหน้า" disabled={win.atLatest}
+                       onClick={() => panTo(win.end + PAN_STEP)} d="M9 6l6 6-6 6" />
+            <button
+              onClick={() => { setViewEnd(null); setCross(null); setMarkerHover(null); }}
+              disabled={win.atLatest}
+              className="px-[11px] py-[5px] rounded-[7px] text-[11px] font-semibold leading-none border transition-colors duration-150"
+              style={win.atLatest
+                ? { borderColor: 'var(--border)', background: 'transparent', color: 'var(--text-secondary)', opacity: 0.5, cursor: 'default' }
+                : { borderColor: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)', cursor: 'pointer' }}
+            >
+              ล่าสุด
+            </button>
+            <span className="text-[10.5px] font-mono text-secondary">
+              {win.atLatest ? 'ล่าสุด' : `ย้อนหลัง ${win.n - win.end} แท่ง`}
+            </span>
           </div>
         </div>
         {lastZone && (
@@ -506,7 +600,9 @@ export default function PriceChart({
         className="relative w-full overflow-hidden"
         style={{ height: CHART_H, cursor: 'crosshair' }}
         onMouseMove={onMove}
-        onMouseLeave={() => setCross(null)}
+        onMouseDown={onDown}
+        onMouseUp={endDrag}
+        onMouseLeave={() => { endDrag(); setCross(null); }}
       >
         {candles.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-secondary/70">

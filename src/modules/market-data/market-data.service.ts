@@ -5,6 +5,17 @@ import * as WebSocket from "ws";
 import { OHLCV } from "../../common/types";
 import { TIMEFRAME_MS } from "../../common/timeframes";
 
+/**
+ * How many candles a stream keeps cached per symbol:timeframe — the REST backfill
+ * size, the default limit for every fetch, and the cap the WS updater trims to.
+ *
+ * One shared constant on purpose: the cache is keyed symbol:timeframe and shared
+ * between StrategyService and the chart, so a per-caller cap would depend on
+ * whichever subscriber opened the stream first. 240 is what the dashboard chart
+ * pans over (design: 240-candle series, 56-candle window).
+ */
+export const MAX_CANDLES = 240;
+
 @Injectable()
 export class MarketDataService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketDataService.name);
@@ -94,19 +105,19 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
   // ไม่มี kline update เข้ามาเกินนี้ถือว่า socket ตาย (สมมติฐาน: symbol ที่ subscribe มี volume ซื้อขายต่อเนื่อง)
   private static readonly WS_STALE_MS = 60_000;
 
-  async fetchOHLCV(limit = 200, symbol = "BTC/USDT:USDT"): Promise<OHLCV[]> {
+  async fetchOHLCV(limit = MAX_CANDLES, symbol = "BTC/USDT:USDT"): Promise<OHLCV[]> {
     return this.fetchOHLCVByTimeframe(limit, "1h", symbol);
   }
 
   async fetchOHLCVByTimeframe(
-    limit = 200,
+    limit = MAX_CANDLES,
     timeframe = "1h",
     symbol = "BTC/USDT:USDT",
   ): Promise<OHLCV[]> {
     return this.subscribeToKlineStream(symbol, timeframe, limit);
   }
 
-  private async fetchRestCandles(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
+  private async fetchRestCandles(symbol: string, timeframe: string, limit = MAX_CANDLES): Promise<OHLCV[]> {
     const exchange = this.liveEnabled ? this.exchangeLive : this.exchangePublic;
     const raw = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
     return raw.map(([timestamp, open, high, low, close, volume]) => ({
@@ -136,7 +147,7 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private async subscribeToKlineStream(symbol: string, timeframe: string, limit = 200): Promise<OHLCV[]> {
+  private async subscribeToKlineStream(symbol: string, timeframe: string, limit = MAX_CANDLES): Promise<OHLCV[]> {
     const cacheKey = `${symbol}:${timeframe}`;
 
     // Return the cache only while it is populated AND fresh — a stale cache
@@ -276,7 +287,7 @@ export class MarketDataService implements OnModuleInit, OnModuleDestroy {
             } else if (kline.timestamp > lastCandle.timestamp) {
               // A new candle has started, push it and remove the oldest to maintain size
               candles.push(kline);
-              if (candles.length > 200) {
+              if (candles.length > MAX_CANDLES) {
                 candles.shift();
               }
             }

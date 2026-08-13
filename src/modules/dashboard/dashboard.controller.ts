@@ -1,13 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, NotFoundException, DefaultValuePipe, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Query, Param, Body, BadRequestException, BadGatewayException, ConflictException, NotFoundException, DefaultValuePipe, ParseUUIDPipe } from '@nestjs/common';
 import { TradingService, TradingMode } from '../trading/trading.service';
 import { StrategyService } from '../strategy/strategy.service';
-import { MarketDataService } from '../market-data/market-data.service';
+import { MarketDataService, MAX_CANDLES } from '../market-data/market-data.service';
 import { CdcActionZoneService } from '../indicators/cdc-action-zone.service';
 import { TradingSettingsService } from '../trading-settings/trading-settings.service';
 import { NotificationSettingsService, NotificationMode, NotificationChannel } from '../notification-settings/notification-settings.service';
 import { NotificationService } from '../notification/notification.service';
 import { UpdateSettingsDto, SYMBOL_PATTERN, VALID_TIMEFRAMES } from './dto/update-settings.dto';
 import { AddPairDto } from './dto/add-pair.dto';
+import { ManualOpenDto } from './dto/manual-open.dto';
+import { CDCZone } from '../../common/types';
 import { UpdateNotificationSettingsDto } from '../notification-settings/dto/update-notification-settings.dto';
 import { ParseModePipe, ParseChannelPipe } from './mode.pipe';
 
@@ -111,7 +113,7 @@ export class DashboardController {
   @Get('indicator')
   async getIndicator(@Query('symbol') symbol = 'BTC/USDT:USDT') {
     if (!SYMBOL_PATTERN.test(symbol)) throw new BadRequestException('invalid symbol');
-    const candles = await this.marketDataService.fetchOHLCV(200, symbol);
+    const candles = await this.marketDataService.fetchOHLCV(MAX_CANDLES, symbol);
     if (!candles.length) return { error: 'ไม่ได้รับ candle data' };
 
     const result = this.cdcService.calculate(candles);
@@ -138,7 +140,7 @@ export class DashboardController {
   ) {
     if (!SYMBOL_PATTERN.test(symbol)) throw new BadRequestException('invalid symbol');
     if (timeframe && !VALID_TIMEFRAMES.includes(timeframe as any)) throw new BadRequestException('invalid timeframe');
-    const candles = await this.marketDataService.fetchOHLCVByTimeframe(200, timeframe, symbol);
+    const candles = await this.marketDataService.fetchOHLCVByTimeframe(MAX_CANDLES, timeframe, symbol);
     if (!candles.length) return { candles: [], indicators: [], count: 0 };
     const indicators = this.cdcService.calculateHistory(candles);
     return { candles, indicators, count: candles.length };
@@ -200,6 +202,54 @@ export class DashboardController {
     if (!stillUsed) this.marketDataService.closeStreamsForSymbol(symbol);
 
     return { ok: true };
+  }
+
+  /**
+   * เปิด position ด้วยมือ (market order) โดยไม่รอสัญญาณ CDC.
+   *
+   * ไม้ที่ได้ไม่มี flag แยก — บอทดูแลต่อตามสัญญาณปกติ และ SL/TP ยึด pct ของ pair
+   * เหมือนไม้ที่บอทเปิดเอง. orderSizeUsdt/leverage ใน body ใช้แทน settings เฉพาะไม้นี้.
+   *
+   * 404 = ยังไม่มี pair นี้ใน mode, 409 = ถึง maxPositions ของฝั่งนั้นแล้ว
+   */
+  @Post('positions/manual')
+  async openManualPosition(@Body() body: ManualOpenDto) {
+    const { mode, symbol, side, orderSizeUsdt, leverage } = body;
+
+    // Reject unknown pairs before touching getSettings — it upserts on a miss and
+    // would leave a phantom settings row with no cron job (same guard as updateSettings).
+    const pair = (await this.settingsService.getAllSettings(mode)).find(p => p.symbol === symbol);
+    if (!pair) {
+      throw new NotFoundException(`no settings for ${mode}/${symbol} — add the pair first`);
+    }
+
+    // min notional หลังปัดเศษ lot size — โยน BadRequest พร้อมขนาดต่ำสุดที่แนะนำ
+    await this.tradingService.validateOrderSize(mode, symbol, orderSizeUsdt, leverage);
+
+    // ราคาเข้าใช้ราคาสดฝั่ง server เท่านั้น ไม่เชื่อค่าที่ client ส่งมา
+    const { last } = await this.marketDataService.fetchTicker(symbol);
+    if (!last) throw new BadGatewayException('ดึงราคาปัจจุบันไม่ได้ — ยังไม่ได้ส่ง order');
+
+    // trade_logs.zone เป็น NOT NULL — ใช้ zone จริงถ้าคำนวณได้, ไม่ได้ก็ CDCZone.NONE (0)
+    // ต้องคิดบน timeframe + EMA ของ pair นั้น เหมือนที่ StrategyService ทำ ไม่ใช่ default 1h/12/26
+    // ไม่งั้น log จะบันทึก zone ที่บอทไม่เคยเห็น
+    const candles = await this.marketDataService.fetchOHLCVByTimeframe(MAX_CANDLES, pair.timeframe, symbol);
+    const zone = (candles.length
+      ? this.cdcService.calculate(candles, undefined, pair.emaFast, pair.emaSlow)?.zone
+      : undefined) ?? CDCZone.NONE;
+
+    const position = side === 'long'
+      ? await this.tradingService.openLong(last, zone, mode, symbol, { orderSizeUsdt, leverage, signal: 'MANUAL' })
+      : await this.tradingService.openShort(last, zone, mode, symbol, { orderSizeUsdt, leverage, signal: 'MANUAL' });
+
+    // openLong/openShort คืน null เมื่อชน maxPositions — ไม่มี order ถูกส่ง
+    if (!position) {
+      throw new ConflictException(
+        `ถึงจำนวน max position ของฝั่ง ${side} แล้วสำหรับ ${symbol} — ปิดไม้เดิมก่อนหรือปรับ Max Positions`,
+      );
+    }
+
+    return { ok: true, position };
   }
 
   /** ปิด position เดี่ยวด้วยมือ (manual market close) */

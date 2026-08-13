@@ -316,6 +316,87 @@ describe('TradingService', () => {
     });
   });
 
+  // ── manual entry overrides (POST /api/positions/manual) ───────────────────
+  //
+  // DEFAULT_SETTINGS is orderSizeUsdt 100 / leverage 5 → qty (100*5)/50_000 = 0.01.
+  // The overrides below ask for 12 × 3 → 0.00072, which the lot-size mock rounds to 0.001,
+  // so the two are distinguishable in the assertions.
+
+  describe('openLong() — manual entry overrides', () => {
+    beforeEach(() => {
+      positionRepo.count.mockResolvedValue(0);
+    });
+
+    it('sizes the order from the overrides instead of the pair settings', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT', {
+        orderSizeUsdt: 12, leverage: 3,
+      });
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.quantity).toBe(0.001);
+    });
+
+    it('sets the overridden leverage on the exchange, not the settings value', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT', {
+        orderSizeUsdt: 12, leverage: 3,
+      });
+      expect(exchange.setLeverage).toHaveBeenCalledWith(3, 'BTC/USDT:USDT');
+    });
+
+    it('records the override signal on the trade log while keeping the OPEN_LONG action', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT', {
+        signal: 'MANUAL',
+      });
+      const savedLog = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedLog.signal).toBe('MANUAL');
+      expect(savedLog.action).toBe('OPEN_LONG');
+    });
+
+    // SL/TP deliberately have no override — a manual position is protected exactly
+    // like a bot position, from the pair's pct settings.
+    it('still derives SL/TP from the pair settings pct', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT', {
+        orderSizeUsdt: 12, leverage: 3,
+      });
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.stopLoss).toBeCloseTo(50_100 * 0.98, 0);
+      expect(savedPos.takeProfit).toBeCloseTo(50_100 * 1.04, 0);
+    });
+
+    it('respects maxPositions — overrides do not bypass the cap', async () => {
+      positionRepo.count.mockResolvedValue(1);
+      const result = await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT', {
+        orderSizeUsdt: 12, leverage: 3,
+      });
+      expect(result).toBeNull();
+      expect(exchange.createMarketBuyOrder).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the settings values when no overrides are passed', async () => {
+      await service.openLong(50_000, CDCZone.STRONG_BULL, 'sandbox', 'BTC/USDT:USDT');
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.quantity).toBe(0.01);
+      expect(exchange.setLeverage).toHaveBeenCalledWith(5, 'BTC/USDT:USDT');
+    });
+  });
+
+  describe('openShort() — manual entry overrides', () => {
+    beforeEach(() => {
+      positionRepo.count.mockResolvedValue(0);
+    });
+
+    it('sizes the order and sets leverage from the overrides', async () => {
+      await service.openShort(50_000, CDCZone.STRONG_BEAR, 'sandbox', 'BTC/USDT:USDT', {
+        orderSizeUsdt: 12, leverage: 3, signal: 'MANUAL',
+      });
+      const savedPos = (positionRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedPos.quantity).toBe(0.001);
+      expect(exchange.setLeverage).toHaveBeenCalledWith(3, 'BTC/USDT:USDT');
+      const savedLog = (tradeLogRepo.create as jest.Mock).mock.calls[0][0];
+      expect(savedLog.signal).toBe('MANUAL');
+      expect(savedLog.action).toBe('OPEN_SHORT');
+    });
+  });
+
   // ── openLong() — live mode ────────────────────────────────────────────────
 
   describe('openLong() — live mode', () => {
