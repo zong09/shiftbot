@@ -1,0 +1,45 @@
+version: 2
+
+updates:
+  # NestJS bot (root package.json)
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Bangkok
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      prefix-development: chore(dev)
+      include: scope
+    # Majors land as their own PR — they need a real look.
+    groups:
+      bot-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # Vite + React dashboard
+  - package-ecosystem: npm
+    directory: /dashboard
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Bangkok
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      prefix-development: chore(dev)
+      include: scope
+    groups:
+      dashboard-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
