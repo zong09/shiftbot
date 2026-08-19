@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.12 is the floor: ccxt 4.5.73 pulls ESM-only @noble/curves, and
+        # `import * as ccxt` compiles to a require() — that only works from
+        # Node 22.12 (require(esm)). 24.x is what the repo is developed on.
+        node: ['22.12', '24']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # No DB needed: nothing under src/**/*.spec.ts imports TypeOrmModule,
+      # so the wiring specs boot a real server without postgres.
+      - name: Test
+        run: npx jest
+
+      - name: Build
+        run: npx nest build
+
+      # The suite mocks MarketDataService, so a jest pass does not prove ccxt
+      # itself still loads under CJS at runtime. This is the check that would
+      # have caught the ccxt 4.5.73 ESM break as a boot failure.
+      - name: ccxt loads under CJS
+        run: node -e "require('ccxt'); console.log('ccxt ok')"
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - run: npm ci
+        working-directory: dashboard
+
+      - run: npm run build
+        working-directory: dashboard
