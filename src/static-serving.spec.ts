@@ -21,7 +21,7 @@ const built = existsSync(join(DIST, 'index.html'));
 
 @Module({
   imports: [
-    ServeStaticModule.forRoot({ rootPath: DIST, exclude: ['/api/(.*)'] }),
+    ServeStaticModule.forRoot({ rootPath: DIST, exclude: ['/api/{*path}'] }),
     JwtModule.register({ secret: 'static-spec-secret-at-least-32-chars!' }),
   ],
   providers: [
@@ -67,5 +67,20 @@ class StaticTestModule {}
     const res = await fetch(`${base}/theme-init.js`);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('shiftbot-theme');
+  });
+
+  // The two tests below go through the SPA fallback, which evaluates `exclude` on every
+  // request. Express 5's path-to-regexp v8 throws on the old v4 pattern '/api/(.*)', so
+  // a wrong pattern only shows up here — `/` and hashed assets never reach the fallback.
+  it('serves index.html for an unknown non-API path (SPA fallback)', async () => {
+    const res = await fetch(`${base}/some/deep/link`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<div id="root">');
+  });
+
+  it('never answers an unknown /api path with index.html', async () => {
+    const res = await fetch(`${base}/api/does-not-exist`);
+    expect(res.status).toBe(404);
+    expect(await res.text()).not.toContain('<div id="root">');
   });
 });
