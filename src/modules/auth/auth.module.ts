@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -17,7 +17,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('jwt.secret'),
         signOptions: {
-          expiresIn: configService.get<string>('jwt.expiry') || '24h',
+          expiresIn: configService.get<JwtSignOptions['expiresIn']>('jwt.expiry') || '24h',
           // Sign explicitly with HS256 so the verifier's algorithm pin
           // (jwt-auth.guard.ts) can never drift away from what we issue.
           algorithm: 'HS256',

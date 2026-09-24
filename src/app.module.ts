@@ -92,7 +92,7 @@ import { AuthModule } from './modules/auth/auth.module';
     }),
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'dashboard', 'dist'),
-      exclude: ['/api/(.*)'],
+      exclude: ['/api/{*path}'],
     }),
     TradingSettingsModule,
     NotificationSettingsModule,
