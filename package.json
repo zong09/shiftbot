@@ -73,6 +73,6 @@
     "concurrently": "^10.0.5",
     "jest": "^30.5.1",
     "ts-jest": "^29.4.12",
-    "typescript": "^5.3.3"
+    "typescript": "^7.0.2"
   }
 }
