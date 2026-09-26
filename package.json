@@ -68,7 +68,7 @@
     "@nestjs/testing": "^12.1.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/jest": "^30.0.0",
-    "@types/node": "^20.11.0",
+    "@types/node": "^26.6.2",
     "@types/ws": "^8.18.1",
     "concurrently": "^10.0.5",
     "jest": "^30.5.1",
